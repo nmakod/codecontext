@@ -1110,5 +1110,5 @@ func TestMCPServerLogging(t *testing.T) {
 	// Verify verbose output contains expected information
 	assert.Contains(t, logs, "CodeContext MCP Server starting")
 	assert.Contains(t, logs, "TargetDir:")
-	assert.Contains(t, logs, "Successfully registered 7 tools")
+	assert.Contains(t, logs, "Successfully registered 8 tools")
 }

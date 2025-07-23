@@ -44,14 +44,17 @@ type GetFileAnalysisArgs struct {
 }
 
 type GetSymbolInfoArgs struct {
-	SymbolName string `json:"symbol_name"`
-	FilePath   string `json:"file_path,omitempty"`
+	SymbolName    string `json:"symbol_name"`
+	FilePath      string `json:"file_path,omitempty"`
+	FrameworkType string `json:"framework_type,omitempty"`
 }
 
 type SearchSymbolsArgs struct {
-	Query    string `json:"query"`
-	FileType string `json:"file_type,omitempty"`
-	Limit    int    `json:"limit,omitempty"`
+	Query         string `json:"query"`
+	FileType      string `json:"file_type,omitempty"`
+	SymbolType    string `json:"symbol_type,omitempty"`
+	FrameworkType string `json:"framework_type,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
 }
 
 type GetDependenciesArgs struct {
@@ -68,6 +71,11 @@ type GetSemanticNeighborhoodsArgs struct {
 	IncludeBasic bool   `json:"include_basic,omitempty"`
 	IncludeQuality bool `json:"include_quality,omitempty"`
 	MaxResults   int    `json:"max_results,omitempty"`
+}
+
+type GetFrameworkAnalysisArgs struct {
+	Framework    string `json:"framework,omitempty"`
+	IncludeStats bool   `json:"include_stats,omitempty"`
 }
 
 // NewCodeContextMCPServer creates a new MCP server instance
@@ -118,14 +126,14 @@ func (s *CodeContextMCPServer) registerTools() {
 	log.Printf("[MCP] Registering tool: get_symbol_info")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "get_symbol_info",
-		Description: "Get detailed information about a specific symbol",
+		Description: "Get detailed information about a specific symbol, including framework-specific details (React components, Vue stores, Angular services, etc.)",
 	}, s.getSymbolInfo)
 
 	// Tool 4: Search symbols
 	log.Printf("[MCP] Registering tool: search_symbols")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "search_symbols",
-		Description: "Search for symbols across the codebase",
+		Description: "Search for symbols across the codebase with framework-aware filtering (components, hooks, services, stores, etc.)",
 	}, s.searchSymbols)
 
 	// Tool 5: Get dependencies
@@ -148,8 +156,15 @@ func (s *CodeContextMCPServer) registerTools() {
 		Name:        "get_semantic_neighborhoods",
 		Description: "Get semantic code neighborhoods using git patterns and hierarchical clustering",
 	}, s.getSemanticNeighborhoods)
+
+	// Tool 8: Get framework analysis
+	log.Printf("[MCP] Registering tool: get_framework_analysis")
+	mcp.AddTool(s.server, &mcp.Tool{
+		Name:        "get_framework_analysis",
+		Description: "Get comprehensive framework-specific analysis including component relationships, hook usage patterns, and framework-specific metrics",
+	}, s.getFrameworkAnalysis)
 	
-	log.Printf("[MCP] Successfully registered 7 tools")
+	log.Printf("[MCP] Successfully registered 8 tools")
 }
 
 // Tool implementations
@@ -293,11 +308,23 @@ func (s *CodeContextMCPServer) getSymbolInfo(ctx context.Context, cc *mcp.Server
 		}
 		result += fmt.Sprintf("**Line:** %d\n", symbol.Location.StartLine)
 		result += fmt.Sprintf("**Type:** %s\n", symbol.Kind)
+		
+		// Add framework-specific information
+		if symbol.Type != "" && string(symbol.Type) != symbol.Kind {
+			result += fmt.Sprintf("**Framework Type:** %s\n", symbol.Type)
+			result += s.getFrameworkSpecificDescription(string(symbol.Type))
+		}
+		
 		if symbol.Signature != "" {
 			result += fmt.Sprintf("**Signature:** `%s`\n", symbol.Signature)
 		}
 		if symbol.Documentation != "" {
 			result += fmt.Sprintf("**Documentation:** %s\n", symbol.Documentation)
+		}
+		
+		// Add framework-specific insights
+		if frameworkInsights := s.getFrameworkInsights(symbol); frameworkInsights != "" {
+			result += fmt.Sprintf("**Framework Insights:** %s\n", frameworkInsights)
 		}
 	}
 
@@ -336,7 +363,22 @@ func (s *CodeContextMCPServer) searchSymbols(ctx context.Context, cc *mcp.Server
 	log.Printf("[MCP] Searching through %d symbols for query: %s", len(s.graph.Symbols), query)
 
 	for _, symbol := range s.graph.Symbols {
-		if strings.Contains(strings.ToLower(symbol.Name), query) {
+		// Check name match
+		nameMatch := strings.Contains(strings.ToLower(symbol.Name), query)
+		
+		// Check framework type filter
+		frameworkMatch := true
+		if args.FrameworkType != "" {
+			frameworkMatch = s.matchesFramework(symbol, args.FrameworkType)
+		}
+		
+		// Check symbol type filter
+		symbolTypeMatch := true
+		if args.SymbolType != "" {
+			symbolTypeMatch = strings.EqualFold(string(symbol.Type), args.SymbolType)
+		}
+		
+		if nameMatch && frameworkMatch && symbolTypeMatch {
 			matches = append(matches, symbol)
 			if len(matches) >= args.Limit {
 				log.Printf("[MCP] Reached limit of %d matches", args.Limit)
@@ -353,11 +395,30 @@ func (s *CodeContextMCPServer) searchSymbols(ctx context.Context, cc *mcp.Server
 	}
 
 	result := fmt.Sprintf("# Symbol Search Results: '%s'\n\n", args.Query)
+	if args.SymbolType != "" || args.FrameworkType != "" {
+		result += fmt.Sprintf("**Filters Applied:** ")
+		if args.SymbolType != "" {
+			result += fmt.Sprintf("Symbol Type: %s ", args.SymbolType)
+		}
+		if args.FrameworkType != "" {
+			result += fmt.Sprintf("Framework: %s ", args.FrameworkType)
+		}
+		result += "\n\n"
+	}
 	result += fmt.Sprintf("Found %d matches:\n\n", len(matches))
 
 	for _, symbol := range matches {
-		result += fmt.Sprintf("- **%s** (%s) - Line %d\n", 
-			symbol.Name, symbol.Kind, symbol.Location.StartLine)
+		frameworkInfo := ""
+		if symbol.Type != "" && string(symbol.Type) != symbol.Kind {
+			frameworkInfo = fmt.Sprintf(" [%s]", symbol.Type)
+		}
+		result += fmt.Sprintf("- **%s**%s (%s) - Line %d\n", 
+			symbol.Name, frameworkInfo, symbol.Kind, symbol.Location.StartLine)
+		
+		// Add framework-specific details
+		if insight := s.getFrameworkInsights(symbol); insight != "" {
+			result += fmt.Sprintf("  *%s*\n", insight)
+		}
 	}
 
 	elapsed := time.Since(start)
@@ -833,4 +894,370 @@ func (s *CodeContextMCPServer) Stop() {
 		log.Printf("[MCP] File watcher stopped")
 	}
 	log.Printf("[MCP] MCP server stopped successfully")
+}
+
+// Framework-specific helper functions
+
+// getFrameworkSpecificDescription returns a description for framework-specific symbol types
+func (s *CodeContextMCPServer) getFrameworkSpecificDescription(symbolType string) string {
+	switch symbolType {
+	case "component":
+		return "**Description:** A reusable UI component that encapsulates functionality and presentation.\n"
+	case "hook":
+		return "**Description:** A React hook that provides stateful logic and side effects.\n"
+	case "service":
+		return "**Description:** An Angular service that provides shared functionality and data.\n"
+	case "directive":
+		return "**Description:** An Angular directive that extends HTML with custom behavior.\n"
+	case "store":
+		return "**Description:** A state management store for centralized application state.\n"
+	case "computed":
+		return "**Description:** A Vue computed property that derives data reactively.\n"
+	case "watcher":
+		return "**Description:** A Vue watcher that observes data changes and reacts accordingly.\n"
+	case "route":
+		return "**Description:** A Next.js route handler for page or API endpoint.\n"
+	case "middleware":
+		return "**Description:** Next.js middleware that runs before request completion.\n"
+	case "action":
+		return "**Description:** A Svelte action that adds behavior to DOM elements.\n"
+	case "lifecycle":
+		return "**Description:** A framework lifecycle method that handles component state changes.\n"
+	default:
+		return ""
+	}
+}
+
+// getFrameworkInsights provides framework-specific insights for symbols
+func (s *CodeContextMCPServer) getFrameworkInsights(symbol *types.Symbol) string {
+	switch string(symbol.Type) {
+	case "component":
+		return "Consider: Props interface, state management, performance optimization"
+	case "hook":
+		return "Consider: Dependencies array, cleanup functions, memoization"
+	case "service":
+		return "Consider: Dependency injection, singleton pattern, testing"
+	case "store":
+		return "Consider: State mutations, subscriptions, persistence"
+	case "route":
+		filePath := s.getFilePathForSymbol(symbol)
+		if strings.Contains(filePath, "/api/") {
+			return "API Route: Consider request validation, error handling, response types"
+		}
+		return "Page Route: Consider SEO, data fetching, loading states"
+	default:
+		return ""
+	}
+}
+
+// matchesFramework checks if a symbol matches a specific framework
+func (s *CodeContextMCPServer) matchesFramework(symbol *types.Symbol, framework string) bool {
+	// Get file classification to determine framework
+	if s.graph != nil && s.graph.Files != nil {
+		filePath := s.getFilePathForSymbol(symbol)
+		if _, exists := s.graph.Files[filePath]; exists {
+			// Check if file has framework metadata
+			// For now, do a simple string match on framework types
+			symbolType := string(symbol.Type)
+			switch strings.ToLower(framework) {
+			case "react":
+				return symbolType == "component" || symbolType == "hook" || 
+					   strings.Contains(filePath, ".jsx") || 
+					   strings.Contains(filePath, ".tsx")
+			case "vue":
+				return symbolType == "component" || symbolType == "computed" || 
+					   symbolType == "watcher" || strings.Contains(filePath, ".vue")
+			case "angular":
+				return symbolType == "component" || symbolType == "service" || 
+					   symbolType == "directive" || strings.Contains(filePath, ".component.")
+			case "svelte":
+				return symbolType == "component" || symbolType == "store" || 
+					   symbolType == "action" || strings.Contains(filePath, ".svelte")
+			case "nextjs", "next.js":
+				return symbolType == "route" || symbolType == "middleware" ||
+					   strings.Contains(filePath, "/pages/") ||
+					   strings.Contains(filePath, "/app/")
+			}
+		}
+	}
+	return false
+}
+
+// getFrameworkAnalysis provides comprehensive framework-specific analysis
+func (s *CodeContextMCPServer) getFrameworkAnalysis(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetFrameworkAnalysisArgs]) (*mcp.CallToolResultFor[any], error) {
+	args := params.Arguments
+
+	if s.graph == nil {
+		return nil, fmt.Errorf("no graph available - ensure analysis has been performed")
+	}
+
+	// Get all framework-specific symbols
+	frameworkSymbols := make(map[string][]*types.Symbol)
+	frameworkCounts := make(map[string]map[string]int)
+	
+	for _, symbol := range s.graph.Symbols {
+		if symbol.Type == types.SymbolTypeComponent || 
+		   symbol.Type == types.SymbolTypeHook || 
+		   symbol.Type == types.SymbolTypeDirective || 
+		   symbol.Type == types.SymbolTypeService || 
+		   symbol.Type == types.SymbolTypeStore || 
+		   symbol.Type == types.SymbolTypeComputed || 
+		   symbol.Type == types.SymbolTypeWatcher || 
+		   symbol.Type == types.SymbolTypeLifecycle || 
+		   symbol.Type == types.SymbolTypeRoute || 
+		   symbol.Type == types.SymbolTypeMiddleware || 
+		   symbol.Type == types.SymbolTypeAction {
+			
+			// Determine framework from file classification
+			filePath := s.getFilePathForSymbol(symbol)
+			framework := s.getFrameworkForFile(filePath)
+			if framework == "" {
+				framework = "Unknown"
+			}
+			
+			// Filter by requested framework if specified
+			if args.Framework != "" && !strings.EqualFold(framework, args.Framework) {
+				continue
+			}
+			
+			frameworkSymbols[framework] = append(frameworkSymbols[framework], symbol)
+			
+			if frameworkCounts[framework] == nil {
+				frameworkCounts[framework] = make(map[string]int)
+			}
+			frameworkCounts[framework][string(symbol.Type)]++
+		}
+	}
+
+	response := s.buildFrameworkAnalysisResponse(frameworkSymbols, frameworkCounts, args)
+
+	return &mcp.CallToolResultFor[any]{
+		Content: []mcp.Content{&mcp.TextContent{Text: response}},
+	}, nil
+}
+
+// getFrameworkForFile determines the framework for a given file path
+func (s *CodeContextMCPServer) getFrameworkForFile(filePath string) string {
+	// Check if we have file classification data
+	for _, file := range s.graph.Files {
+		if file.Path == filePath {
+			// Try to get framework from metadata or file patterns
+			if strings.Contains(filePath, ".vue") {
+				return "Vue"
+			} else if strings.Contains(filePath, ".svelte") {
+				return "Svelte"
+			} else if strings.Contains(filePath, ".astro") {
+				return "Astro"
+			} else if strings.Contains(filePath, ".component.") {
+				return "Angular"
+			} else if strings.Contains(filePath, ".jsx") || strings.Contains(filePath, ".tsx") {
+				return "React"
+			} else if strings.Contains(filePath, "/pages/") || strings.Contains(filePath, "/app/") {
+				return "Next.js"
+			}
+		}
+	}
+	
+	// Fallback to basic pattern matching
+	if strings.Contains(filePath, ".vue") {
+		return "Vue"
+	} else if strings.Contains(filePath, ".svelte") {
+		return "Svelte"
+	} else if strings.Contains(filePath, ".astro") {
+		return "Astro"
+	} else if strings.Contains(filePath, ".component.") {
+		return "Angular"
+	} else if strings.Contains(filePath, ".jsx") || strings.Contains(filePath, ".tsx") {
+		return "React"
+	} else if strings.Contains(filePath, "/pages/") || strings.Contains(filePath, "/app/") {
+		return "Next.js"
+	}
+	
+	return ""
+}
+
+// buildFrameworkAnalysisResponse builds the comprehensive framework analysis response
+func (s *CodeContextMCPServer) buildFrameworkAnalysisResponse(frameworkSymbols map[string][]*types.Symbol, frameworkCounts map[string]map[string]int, args GetFrameworkAnalysisArgs) string {
+	var response strings.Builder
+	
+	response.WriteString("# 🚀 Framework Analysis Report\n\n")
+	
+	if args.Framework != "" {
+		response.WriteString(fmt.Sprintf("**Focused Analysis for: %s**\n\n", args.Framework))
+	} else {
+		response.WriteString("**Comprehensive Multi-Framework Analysis**\n\n")
+	}
+	
+	if len(frameworkSymbols) == 0 {
+		response.WriteString("❌ **No framework-specific symbols found**\n")
+		response.WriteString("This codebase doesn't appear to use any detected frameworks, or symbols haven't been properly extracted.\n")
+		return response.String()
+	}
+	
+	// Overview statistics
+	if args.IncludeStats {
+		response.WriteString("## 📊 Framework Overview\n\n")
+		totalSymbols := 0
+		for framework, symbols := range frameworkSymbols {
+			count := len(symbols)
+			totalSymbols += count
+			response.WriteString(fmt.Sprintf("- **%s**: %d symbols\n", framework, count))
+		}
+		response.WriteString(fmt.Sprintf("\n**Total Framework Symbols**: %d\n\n", totalSymbols))
+	}
+	
+	// Detailed framework analysis
+	for framework, symbols := range frameworkSymbols {
+		response.WriteString(fmt.Sprintf("## 🎯 %s Framework Analysis\n\n", framework))
+		
+		// Symbol type breakdown
+		counts := frameworkCounts[framework]
+		response.WriteString("### Symbol Distribution\n\n")
+		for symbolType, count := range counts {
+			emoji := s.getSymbolTypeEmoji(symbolType)
+			response.WriteString(fmt.Sprintf("- %s **%s**: %d\n", emoji, symbolType, count))
+		}
+		response.WriteString("\n")
+		
+		// Framework-specific insights
+		insights := s.getFrameworkAnalysisInsights(framework, symbols, counts)
+		if insights != "" {
+			response.WriteString("### 💡 Framework Insights\n\n")
+			response.WriteString(insights)
+			response.WriteString("\n")
+		}
+		
+		// Key symbols (top 5 by name)
+		response.WriteString("### 🔑 Key Symbols\n\n")
+		for i, symbol := range symbols {
+			if i >= 5 { // Limit to top 5
+				break
+			}
+			emoji := s.getSymbolTypeEmoji(string(symbol.Type))
+			filePath := s.getFilePathForSymbol(symbol)
+			location := fmt.Sprintf("%s:%d", filePath, symbol.Location.StartLine)
+			response.WriteString(fmt.Sprintf("- %s **%s** (`%s`) - %s\n", emoji, symbol.Name, symbol.Type, location))
+		}
+		response.WriteString("\n")
+	}
+	
+	// Cross-framework recommendations
+	if len(frameworkSymbols) > 1 {
+		response.WriteString("## 🔄 Multi-Framework Observations\n\n")
+		response.WriteString("This codebase uses multiple frameworks. Consider:\n")
+		response.WriteString("- **Consistency**: Ensure similar patterns across frameworks\n")
+		response.WriteString("- **Separation**: Keep framework-specific code in separate modules\n")
+		response.WriteString("- **Shared utilities**: Extract common logic to framework-agnostic utilities\n\n")
+	}
+	
+	return response.String()
+}
+
+// getFrameworkAnalysisInsights provides framework-specific insights based on symbol analysis
+func (s *CodeContextMCPServer) getFrameworkAnalysisInsights(framework string, symbols []*types.Symbol, counts map[string]int) string {
+	var insights strings.Builder
+	
+	switch strings.ToLower(framework) {
+	case "react":
+		componentCount := counts["component"]
+		hookCount := counts["hook"]
+		if componentCount > 0 && hookCount > 0 {
+			ratio := float64(hookCount) / float64(componentCount)
+			if ratio > 0.5 {
+				insights.WriteString("✅ **Good hook usage**: High hook-to-component ratio suggests good state logic separation\n")
+			} else {
+				insights.WriteString("💡 **Consider more hooks**: Low hook-to-component ratio - consider extracting stateful logic\n")
+			}
+		}
+		if componentCount > 10 {
+			insights.WriteString("📦 **Large codebase**: Consider component composition and code splitting\n")
+		}
+		
+	case "vue":
+		componentCount := counts["component"]
+		computedCount := counts["computed"]
+		if computedCount > 0 {
+			insights.WriteString("✅ **Good reactive patterns**: Using computed properties for derived state\n")
+		}
+		if componentCount > computedCount*2 {
+			insights.WriteString("💡 **Consider computed properties**: Many components without computed properties\n")
+		}
+		
+	case "angular":
+		componentCount := counts["component"]
+		serviceCount := counts["service"]
+		if serviceCount > 0 {
+			ratio := float64(serviceCount) / float64(componentCount)
+			if ratio > 0.3 {
+				insights.WriteString("✅ **Good service usage**: Good separation of concerns with services\n")
+			} else {
+				insights.WriteString("💡 **Consider more services**: Extract business logic into services\n")
+			}
+		}
+		
+	case "svelte":
+		componentCount := counts["component"]
+		storeCount := counts["store"]
+		if storeCount > 0 {
+			insights.WriteString("✅ **Using stores**: Good global state management with Svelte stores\n")
+		}
+		if componentCount > 5 && storeCount == 0 {
+			insights.WriteString("💡 **Consider stores**: Large component count without stores - consider global state management\n")
+		}
+		
+	case "next.js":
+		routeCount := counts["route"]
+		middlewareCount := counts["middleware"]
+		if middlewareCount > 0 {
+			insights.WriteString("✅ **Using middleware**: Good request processing patterns\n")
+		}
+		if routeCount > 20 {
+			insights.WriteString("📊 **Large application**: Consider route organization and lazy loading\n")
+		}
+	}
+	
+	return insights.String()
+}
+
+// getFilePathForSymbol finds the file path for a given symbol
+func (s *CodeContextMCPServer) getFilePathForSymbol(symbol *types.Symbol) string {
+	// Look through all files to find which one contains this symbol
+	for filePath, fileNode := range s.graph.Files {
+		for _, symbolId := range fileNode.Symbols {
+			if symbolId == symbol.Id {
+				return filePath
+			}
+		}
+	}
+	return ""
+}
+
+// getSymbolTypeEmoji returns an emoji for each symbol type
+func (s *CodeContextMCPServer) getSymbolTypeEmoji(symbolType string) string {
+	switch symbolType {
+	case "component":
+		return "🧩"
+	case "hook":
+		return "🪝"
+	case "directive":
+		return "📋"
+	case "service":
+		return "⚙️"
+	case "store":
+		return "🗄️"
+	case "computed":
+		return "🧮"
+	case "watcher":
+		return "👁️"
+	case "lifecycle":
+		return "🔄"
+	case "route":
+		return "🛣️"
+	case "middleware":
+		return "🔀"
+	case "action":
+		return "⚡"
+	default:
+		return "📦"
+	}
 }
