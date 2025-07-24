@@ -1,26 +1,27 @@
 # API Interfaces Specification
 
-**Version:** 2.2+  
-**Status:** Production Ready - All Interfaces Implemented  
+**Version:** 2.4+  
+**Status:** Production Ready - Enhanced with Framework Analysis  
 **Last Updated:** July 2025
 
 ## Overview
 
-This document defines all core interfaces and APIs implemented in CodeContext v2.2+. These interfaces reflect the production-ready implementation that exceeds the original HLD scope, including new components like Git Integration and MCP Server.
+This document defines all core interfaces and APIs implemented in CodeContext v2.4+. These interfaces reflect the production-ready implementation that exceeds the original HLD scope, including new components like Git Integration, MCP Server, and Framework-Specific Analysis capabilities.
 
 ## Table of Contents
 
 1. [Core Interfaces](#core-interfaces)
-2. [Git Integration Interfaces](#git-integration-interfaces) **NEW**
-3. [Enhanced Diff Engine Interfaces](#enhanced-diff-engine-interfaces) **NEW**
-4. [MCP Server Interfaces](#mcp-server-interfaces) **NEW**
-5. [Virtual Graph Interfaces](#virtual-graph-interfaces)
-6. [Parser Interfaces](#parser-interfaces)
-7. [Compact Controller Interfaces](#compact-controller-interfaces)
-8. [Storage Interfaces](#storage-interfaces)
-9. [REST API Specifications](#rest-api-specifications)
-10. [GraphQL Schema](#graphql-schema)
-11. [CLI Interface](#cli-interface)
+2. [Framework Detection Interfaces](#framework-detection-interfaces) **NEW v2.4**
+3. [Git Integration Interfaces](#git-integration-interfaces) **NEW**
+4. [Enhanced Diff Engine Interfaces](#enhanced-diff-engine-interfaces) **NEW**
+5. [MCP Server Interfaces](#mcp-server-interfaces) **NEW - Enhanced in v2.4**
+6. [Virtual Graph Interfaces](#virtual-graph-interfaces)
+7. [Parser Interfaces](#parser-interfaces) **Enhanced in v2.4**
+8. [Compact Controller Interfaces](#compact-controller-interfaces)
+9. [Storage Interfaces](#storage-interfaces)
+10. [REST API Specifications](#rest-api-specifications)
+11. [GraphQL Schema](#graphql-schema)
+12. [CLI Interface](#cli-interface)
 
 ## Core Interfaces
 
@@ -93,6 +94,105 @@ type ProgressReporter interface {
     Increment(delta int)
     UpdateMessage(message string)
     Finish()
+}
+```
+
+## Framework Detection Interfaces
+
+### Framework Detector Interface
+```go
+type FrameworkDetector interface {
+    // Main detection methods
+    DetectFramework(filePath, language, content string) string
+    
+    // Strategy-specific detection
+    DetectByFileExtension(filePath string) string
+    DetectByImports(content string) string
+    DetectByPackageJson(filePath string) string
+    DetectPythonFramework(content string) string
+    DetectJavaFramework(content string) string
+    
+    // Caching and performance
+    ClearCache() error
+    GetCacheStats() CacheStats
+}
+
+type PackageInfo struct {
+    Dependencies    map[string]string `json:"dependencies"`
+    DevDependencies map[string]string `json:"devDependencies"`
+    Scripts         map[string]string `json:"scripts"`
+}
+
+type CacheStats struct {
+    PackageCacheSize   int
+    FrameworkCacheSize int
+    HitRate           float64
+    MissRate          float64
+}
+```
+
+### Framework-Specific Symbol Types
+```go
+// Framework-specific symbol types (added to SymbolType enum)
+const (
+    SymbolTypeComponent    SymbolType = "component"    // React, Vue, Angular, Svelte components
+    SymbolTypeHook         SymbolType = "hook"         // React hooks
+    SymbolTypeDirective    SymbolType = "directive"    // Angular directives
+    SymbolTypeService      SymbolType = "service"      // Angular services
+    SymbolTypeStore        SymbolType = "store"        // Svelte stores, Vue stores
+    SymbolTypeComputed     SymbolType = "computed"     // Vue computed properties
+    SymbolTypeWatcher      SymbolType = "watcher"      // Vue watchers
+    SymbolTypeLifecycle    SymbolType = "lifecycle"    // Lifecycle methods/hooks
+    SymbolTypeRoute        SymbolType = "route"        // Next.js pages, API routes
+    SymbolTypeMiddleware   SymbolType = "middleware"   // Next.js middleware
+    SymbolTypeAction       SymbolType = "action"       // Svelte actions, Vue actions
+)
+```
+
+### Framework Classification
+```go
+type FileClassification struct {
+    Language    Language `json:"language"`
+    FileType    string   `json:"file_type"` // "source", "test", "config", "documentation"
+    IsGenerated bool     `json:"is_generated"`
+    IsTest      bool     `json:"is_test"`
+    Framework   string   `json:"framework,omitempty"` // NEW: Framework detection result
+    Confidence  float64  `json:"confidence"`
+}
+```
+
+### Framework Analysis Results
+```go
+type FrameworkAnalysis struct {
+    Framework          string                    `json:"framework"`
+    SymbolDistribution map[string]int           `json:"symbol_distribution"`
+    TotalSymbols       int                      `json:"total_symbols"`
+    Insights           []FrameworkInsight       `json:"insights"`
+    BestPractices      []BestPractice          `json:"best_practices"`
+    Recommendations    []Recommendation        `json:"recommendations"`
+}
+
+type FrameworkInsight struct {
+    Type        string  `json:"type"`        // "pattern", "anti-pattern", "optimization"
+    Message     string  `json:"message"`
+    Confidence  float64 `json:"confidence"`
+    Impact      string  `json:"impact"`      // "high", "medium", "low"
+    FileCount   int     `json:"file_count"`
+}
+
+type BestPractice struct {
+    Category    string   `json:"category"`    // "structure", "performance", "maintainability"
+    Description string   `json:"description"`
+    Examples    []string `json:"examples"`
+    References  []string `json:"references"`
+}
+
+type Recommendation struct {
+    Title       string   `json:"title"`
+    Description string   `json:"description"`
+    Priority    string   `json:"priority"`    // "high", "medium", "low"
+    ActionItems []string `json:"action_items"`
+    Effort      string   `json:"effort"`      // "low", "medium", "high"
 }
 ```
 
@@ -307,36 +407,74 @@ type MCPTool interface {
 }
 ```
 
-### Implemented MCP Tools
+### Implemented MCP Tools (v2.4 - 8 Tools)
 ```go
-// 1. Get context map for files
-type GetContextMapTool struct {
+// 1. Get codebase overview
+type GetCodebaseOverviewTool struct {
     analyzer *analyzer.GraphBuilder
 }
 
-// 2. Search symbols across codebase
+// 2. Get file analysis  
+type GetFileAnalysisTool struct {
+    analyzer *analyzer.GraphBuilder
+}
+
+// 3. Get symbol information (Enhanced with framework-specific insights)
+type GetSymbolInfoTool struct {
+    analyzer *analyzer.GraphBuilder
+    frameworkDetector *parser.FrameworkDetector
+}
+
+// 4. Search symbols (Enhanced with framework-aware filtering)
 type SearchSymbolsTool struct {
     analyzer *analyzer.GraphBuilder
+    frameworkDetector *parser.FrameworkDetector
 }
 
-// 3. Get file dependencies
+// 5. Get dependencies
 type GetDependenciesTool struct {
     analyzer *analyzer.GraphBuilder
 }
 
-// 4. Analyze git patterns
-type AnalyzeGitPatternsTool struct {
-    gitAnalyzer *git.SemanticAnalyzer
+// 6. Watch changes
+type WatchChangesTool struct {
+    watcher *watcher.FileWatcher
 }
 
-// 5. Get semantic neighborhoods
+// 7. Get semantic neighborhoods
 type GetSemanticNeighborhoodsTool struct {
     gitIntegration *git.GraphIntegration
 }
 
-// 6. Get project structure
-type GetProjectStructureTool struct {
+// 8. Get framework analysis (NEW in v2.4)
+type GetFrameworkAnalysisTool struct {
     analyzer *analyzer.GraphBuilder
+    frameworkDetector *parser.FrameworkDetector
+}
+```
+
+### Enhanced MCP Tool Arguments (v2.4)
+```go
+// Enhanced get_symbol_info arguments with framework support
+type GetSymbolInfoArgs struct {
+    SymbolName    string `json:"symbol_name"`
+    FilePath      string `json:"file_path,omitempty"`
+    FrameworkType string `json:"framework_type,omitempty"` // NEW: Framework filtering
+}
+
+// Enhanced search_symbols arguments with framework filtering
+type SearchSymbolsArgs struct {
+    Query         string `json:"query"`
+    Limit         int    `json:"limit,omitempty"`
+    FileType      string `json:"file_type,omitempty"`
+    SymbolType    string `json:"symbol_type,omitempty"`
+    FrameworkType string `json:"framework_type,omitempty"` // NEW: Framework filtering
+}
+
+// NEW: Framework analysis arguments
+type GetFrameworkAnalysisArgs struct {
+    Framework    string `json:"framework,omitempty"`    // Filter by specific framework
+    IncludeStats bool   `json:"include_stats,omitempty"` // Include detailed statistics
 }
 ```
 
