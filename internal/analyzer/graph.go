@@ -101,6 +101,7 @@ func (gb *GraphBuilder) AnalyzeDirectory(targetDir string) (*types.CodeGraph, er
 		}
 
 		fileCount++
+		
 		// Update progress at configured intervals for staged display
 		if gb.progressCallback != nil && fileCount%gb.progressConfig.Interval == 0 {
 			gb.progressCallback(fmt.Sprintf("📄 Parsing files... (%d files)", fileCount))
@@ -309,7 +310,23 @@ func (gb *GraphBuilder) resolveImportPath(importPath, fromFile string) string {
 // isSupportedFile checks if a file is supported for parsing
 func (gb *GraphBuilder) isSupportedFile(path string) bool {
 	ext := filepath.Ext(path)
-	supportedExtensions := []string{".ts", ".tsx", ".js", ".jsx", ".json", ".yaml", ".yml"}
+	// Include all languages supported by the parser manager
+	supportedExtensions := []string{
+		// JavaScript/TypeScript
+		".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs",
+		// Go
+		".go",
+		// Python  
+		".py", ".pyi",
+		// Java
+		".java",
+		// Rust
+		".rs",
+		// Config files
+		".json", ".yaml", ".yml",
+		// Markdown (for documentation)
+		".md",
+	}
 
 	for _, supported := range supportedExtensions {
 		if ext == supported {

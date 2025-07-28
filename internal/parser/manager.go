@@ -359,7 +359,6 @@ func (m *Manager) parseContent(content string, language types.Language, filePath
 	parser, exists := m.parsers[language.Name]
 	treeSitterLang := m.languages[language.Name]
 	m.mu.RUnlock()
-
 	if !exists {
 		return nil, fmt.Errorf("unsupported language: %s", language.Name)
 	}
