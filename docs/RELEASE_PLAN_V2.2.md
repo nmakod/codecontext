@@ -184,12 +184,12 @@ brew install codecontext
 **Direct Download:**
 ```bash
 # Download binary for macOS
-curl -L https://github.com/nuthan-ms/codecontext/releases/download/v2.2.0/codecontext-2.2.0-darwin-arm64.tar.gz | tar xz
+curl -L https://github.com/nmakod/codecontext/releases/download/v2.2.0/codecontext-2.2.0-darwin-arm64.tar.gz | tar xz
 ```
 
 **Build from Source:**
 ```bash
-git clone https://github.com/nuthan-ms/codecontext.git
+git clone https://github.com/nmakod/codecontext.git
 cd codecontext
 make build
 ```

@@ -15,7 +15,7 @@ This package provides real-time file system monitoring capabilities for CodeCont
 ### Basic Usage
 
 ```go
-import "github.com/nuthan-ms/codecontext/internal/watcher"
+import "github.com/nmakod/codecontext/internal/watcher"
 
 config := watcher.Config{
     TargetDir:    "/path/to/project",

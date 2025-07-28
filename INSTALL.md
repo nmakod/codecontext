@@ -12,7 +12,7 @@
 
 ```bash
 # Install from custom tap (once published)
-brew tap nuthan-ms/codecontext
+brew tap nmakod/codecontext
 brew install codecontext
 
 # Or install directly from formula
@@ -25,16 +25,16 @@ Download the latest release from GitHub:
 
 ```bash
 # macOS (Intel)
-curl -L https://github.com/nuthan-ms/codecontext/releases/download/v2.0.0/codecontext-2.0.0-darwin-amd64.tar.gz | tar xz
+curl -L https://github.com/nmakod/codecontext/releases/download/v2.0.0/codecontext-2.0.0-darwin-amd64.tar.gz | tar xz
 
 # macOS (Apple Silicon)
-curl -L https://github.com/nuthan-ms/codecontext/releases/download/v2.0.0/codecontext-2.0.0-darwin-arm64.tar.gz | tar xz
+curl -L https://github.com/nmakod/codecontext/releases/download/v2.0.0/codecontext-2.0.0-darwin-arm64.tar.gz | tar xz
 
 # Linux (Intel)
-curl -L https://github.com/nuthan-ms/codecontext/releases/download/v2.0.0/codecontext-2.0.0-linux-amd64.tar.gz | tar xz
+curl -L https://github.com/nmakod/codecontext/releases/download/v2.0.0/codecontext-2.0.0-linux-amd64.tar.gz | tar xz
 
 # Linux (ARM)
-curl -L https://github.com/nuthan-ms/codecontext/releases/download/v2.0.0/codecontext-2.0.0-linux-arm64.tar.gz | tar xz
+curl -L https://github.com/nmakod/codecontext/releases/download/v2.0.0/codecontext-2.0.0-linux-arm64.tar.gz | tar xz
 ```
 
 Move the binary to your PATH:
@@ -46,7 +46,7 @@ sudo mv codecontext /usr/local/bin/
 
 ```bash
 # Clone the repository
-git clone https://github.com/nuthan-ms/codecontext.git
+git clone https://github.com/nmakod/codecontext.git
 cd codecontext
 
 # Build for your platform
@@ -59,7 +59,7 @@ make install
 ### 4. Go Install (Development)
 
 ```bash
-go install github.com/nuthan-ms/codecontext/cmd/codecontext@latest
+go install github.com/nmakod/codecontext/cmd/codecontext@latest
 ```
 
 ## Verification
@@ -106,7 +106,7 @@ go version
 
 ### Support
 
-- **GitHub Issues**: [Report bugs or request features](https://github.com/nuthan-ms/codecontext/issues)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/nmakod/codecontext/issues)
 - **Documentation**: Check the README and inline help
 - **Development**: See CONTRIBUTING.md for development setup
 

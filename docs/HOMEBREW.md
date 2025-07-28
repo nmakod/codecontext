@@ -55,7 +55,7 @@ This guide covers how to publish CodeContext to Homebrew for easy installation o
 1. **Create a tap repository**:
    ```bash
    # Create repository: homebrew-codecontext
-   git clone https://github.com/nuthan-ms/homebrew-codecontext.git
+   git clone https://github.com/nmakod/homebrew-codecontext.git
    cd homebrew-codecontext
    
    # Copy formula
@@ -69,7 +69,7 @@ This guide covers how to publish CodeContext to Homebrew for easy installation o
 
 2. **Users install via**:
    ```bash
-   brew tap nuthan-ms/codecontext
+   brew tap nmakod/codecontext
    brew install codecontext
    ```
 
@@ -77,7 +77,7 @@ This guide covers how to publish CodeContext to Homebrew for easy installation o
 
 Users can install directly from our repository:
 ```bash
-brew install --build-from-source https://raw.githubusercontent.com/nuthan-ms/codecontext/main/Formula/codecontext.rb
+brew install --build-from-source https://raw.githubusercontent.com/nmakod/codecontext/main/Formula/codecontext.rb
 ```
 
 ## Release Process
@@ -116,7 +116,7 @@ shasum -a 256 codecontext-2.0.0.tar.gz
 
 The formula automatically pulls from GitHub releases:
 ```ruby
-url "https://github.com/nuthan-ms/codecontext/archive/v2.0.0.tar.gz"
+url "https://github.com/nmakod/codecontext/archive/v2.0.0.tar.gz"
 sha256 "72f79124718fe1d5f9787673ac62c4871168a8927f948ca99156d02c16da89c9"
 ```
 
