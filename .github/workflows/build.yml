@@ -1,106 +1,62 @@
-# https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions
+# CI/CD Pipeline for CodeContext
 name: Build
 
-on:  # https://docs.github.com/en/actions/reference/events-that-trigger-workflows
+on:
   push:
-    branches-ignore:  # build all branches except:
-    - 'dependabot/**'  # prevent GHA triggered twice (once for commit to the branch and once for opening/syncing the PR)
-    tags:  # build version tags
-    - 'v*.*.*'
-    paths-ignore:
-    - '**/*.adoc'
-    - '**/*.md'
-    - '.act*'
-    - '.editorconfig'
-    - '.git*'
-    - '.github/*.yml'
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
   pull_request:
-    paths-ignore:
-    - '**/*.adoc'
-    - '**/*.md'
-    - '.act*'
-    - '.editorconfig'
-    - '.git*'
-    - '.github/*.yml'
+    branches:
+      - main
   workflow_dispatch:
-    # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#workflow_dispatch
-
 
 defaults:
   run:
     shell: bash
 
-
 jobs:
   ###########################################################
   security:
   ###########################################################
-    runs-on: ubuntu-latest  # https://github.com/actions/runner-images#available-images
+    runs-on: ubuntu-latest
     steps:
-    - name: Git Checkout
-      uses: actions/checkout@v4  # https://github.com/actions/checkout
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
 
     - name: Run Nancy vulnerability scanner
-      # https://github.com/sonatype-nexus-community/nancy 
       run: |
         set -euo pipefail
-
-        # Download latest Nancy binary from GitHub releases
-        NANCY_VERSION=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/sonatype-nexus-community/nancy/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
+        NANCY_VERSION=$(curl -s https://api.github.com/repos/sonatype-nexus-community/nancy/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
         curl -fsSL "https://github.com/sonatype-nexus-community/nancy/releases/download/${NANCY_VERSION}/nancy-${NANCY_VERSION}-linux-amd64" -o nancy
         chmod +x nancy
-
-        # Run Nancy on the dependency list
         go list -json -deps ./... | ./nancy sleuth
 
     - name: Run govulncheck
-      uses: golang/govulncheck-action@v1  # https://github.com/golang/govulncheck-action
+      uses: golang/govulncheck-action@v1
       with:
         check-latest: true
 
     - name: Run Gosec Security Scanner
-      continue-on-error: true  # FIXME there are findings
-      uses: securego/gosec@master  # https://github.com/securego/gosec
+      uses: securego/gosec@master
       with:
         args: ./...
 
   ###########################################################
-  build:
+  test:
   ###########################################################
-    needs: security  # Run build only after security checks pass
-    runs-on: ${{ matrix.os }}  # https://github.com/actions/runner-images#available-images
-    strategy:
-      matrix:
-        # Note:
-        # We cannot cross-compile or build static binaries because Tree-sitter requires CGO (C bindings) for parsing.
-        # CGO needs matching C toolchains for the target architecture, which aren't available when cross-compiling.
-        # This is why we use native runners for each platform/architecture.
-        include:
-          # AMD64 runners
-          - os: ubuntu-latest
-            target_arch: amd64
-          - os: windows-latest
-            target_arch: amd64
-          - os: macos-13
-            target_arch: amd64
-          # ARM64 runners
-          - os: ubuntu-latest # ARM64 via QEMU
-            target_arch: arm64
-          - os: macos-latest
-            target_arch: arm64
-      fail-fast: false
-
+    runs-on: ubuntu-latest
     steps:
-    - name: Git Checkout
-      uses: actions/checkout@v4  # https://github.com/actions/checkout
+    - name: Checkout
+      uses: actions/checkout@v4
 
-    - name: Set up QEMU
-      if: ${{ runner.os == 'Linux' && matrix.target_arch == 'arm64' }}
-      uses: docker/setup-qemu-action@v3
-      with:
-        platforms: linux/arm64
-
-    - name: Set up Go
+    - name: Setup Go
       uses: actions/setup-go@v5
       with:
         go-version-file: 'go.mod'
@@ -113,179 +69,208 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-go-
 
-    - name: Download dependencies
-      run: go mod download
-
-    - name: Test
-      continue-on-error: ${{ github.ref_name == 'main' }}
-      run: go test -v ./...
-
-    - name: Build
+    - name: Run tests
       run: |
-        set -euo pipefail
+        go test -v -race -coverprofile=coverage.out ./...
+        go tool cover -func=coverage.out
 
-        echo "Building for ${{ runner.os }} ${{ matrix.target_arch }}..."
+    - name: Upload coverage
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.out
+        flags: unittests
 
-        if [[ "${{ runner.os }}" == "Linux" && "${{ matrix.target_arch }}" == "arm64" ]]; then
-          # For Linux ARM64, we use QEMU emulation to build natively
-          echo "Building Linux ARM64 using QEMU emulation..."
+  ###########################################################
+  build:
+  ###########################################################
+    needs: [security, test]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target_os: linux
+            target_arch: amd64
+          - os: ubuntu-latest
+            target_os: linux
+            target_arch: arm64
+          - os: windows-latest
+            target_os: windows
+            target_arch: amd64
+          - os: macos-13
+            target_os: darwin
+            target_arch: amd64
+          - os: macos-latest
+            target_os: darwin
+            target_arch: arm64
+      fail-fast: false
 
-          # Extract Go version from go.mod
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup QEMU
+      if: matrix.target_os == 'linux' && matrix.target_arch == 'arm64'
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/arm64
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Get version
+      id: version
+      run: |
+        VERSION=$(cat VERSION)
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Build binary
+      env:
+        GOOS: ${{ matrix.target_os }}
+        GOARCH: ${{ matrix.target_arch }}
+      run: |
+        # Get version and build info
+        VERSION="${{ steps.version.outputs.version }}"
+        COMMIT="${{ github.sha }}"
+        BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        
+        # Build flags
+        LDFLAGS="-X main.version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.gitCommit=${COMMIT:0:8}"
+        
+        # Binary name
+        BINARY_NAME="codecontext"
+        if [[ "${{ matrix.target_os }}" == "windows" ]]; then
+          BINARY_NAME="codecontext.exe"
+        fi
+        
+        # Build
+        if [[ "${{ matrix.target_os }}" == "linux" && "${{ matrix.target_arch }}" == "arm64" ]]; then
+          # Use Docker for Linux ARM64
           GO_VERSION=$(grep -E '^go [0-9]+\.[0-9]+' go.mod | awk '{print $2}')
-          echo "Detected Go version: $GO_VERSION"
-
           docker run --rm --platform linux/arm64 \
             -v $PWD:/workspace \
             -w /workspace \
             golang:${GO_VERSION} \
-            sh -c "apt-get update && apt-get install -y gcc && git config --global --add safe.directory /workspace && go build -v -o codecontext ./cmd/codecontext"
+            sh -c "apt-get update && apt-get install -y gcc && go build -ldflags '${LDFLAGS}' -o ${BINARY_NAME} ./cmd/codecontext"
         else
-          # Regular native build
-          go build -v -o codecontext${{ runner.os == 'Windows' && '.exe' || '' }} ./cmd/codecontext
+          go build -ldflags "${LDFLAGS}" -o "${BINARY_NAME}" ./cmd/codecontext
         fi
 
-    - name: Upload artifacts
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: codecontext-${{ matrix.os }}-${{ matrix.target_arch }}
+        name: codecontext-${{ matrix.target_os }}-${{ matrix.target_arch }}
         path: |
           codecontext
           codecontext.exe
         if-no-files-found: error
 
-
   ###########################################################
-  release-latest:
+  release:
   ###########################################################
-    if: github.ref_name == 'main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
-
     permissions:
       contents: write
 
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts
-
-    - name: Prepare release assets
-      run: |
-        set -euo pipefail
-
-        mkdir -p release
-        # Rename artifacts to proper names
-        mv artifacts/codecontext-ubuntu-latest-amd64/codecontext release/codecontext-linux-amd64
-        mv artifacts/codecontext-ubuntu-latest-arm64/codecontext release/codecontext-linux-arm64
-        mv artifacts/codecontext-windows-latest-amd64/codecontext.exe release/codecontext-windows-amd64.exe
-        mv artifacts/codecontext-macos-13-amd64/codecontext release/codecontext-darwin-amd64
-        mv artifacts/codecontext-macos-latest-arm64/codecontext release/codecontext-darwin-arm64
-        # Generate checksums
-        cd release && sha256sum * > checksums.txt
-
-    - name: Delete existing latest release
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      continue-on-error: true
-      run: |
-        # Delete the release if it exists
-        gh release delete latest --yes || true
-        # Delete the tag if it exists
-        git push origin :refs/tags/latest || true
-
-    - name: Create latest release
-      uses: ncipollo/release-action@v1
-      with:
-        tag: latest
-        name: Latest Development Build
-        body: |
-          Latest development build from main branch.
-
-          **⚠️ This is an automated development build and may be unstable.**
-
-          Last updated: ${{ github.event.head_commit.timestamp }}
-          Commit: ${{ github.sha }}
-        artifacts: "release/*"
-        artifactContentType: application/octet-stream
-        makeLatest: false
-        prerelease: true
-        allowUpdates: true
-        replacesArtifacts: true
-        token: ${{ secrets.GITHUB_TOKEN }}
-
-  ###########################################################
-  release-tag:
-  ###########################################################
-    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-    
-    needs: build
-    runs-on: ubuntu-latest
-    
-    permissions:
-      contents: write
-    
-    steps:
-    - name: Git Checkout
+    - name: Checkout
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Need history for changelog
-    
-    - name: Extract version info
-      id: version
-      run: |
-        TAG="${{ github.ref_name }}"
-        VERSION="${TAG#v}"
-        echo "version=${VERSION}" >> $GITHUB_OUTPUT
-        
-        # Check if prerelease
-        if [[ "${VERSION}" == *-* ]]; then
-          echo "is_prerelease=true" >> $GITHUB_OUTPUT
-        else
-          echo "is_prerelease=false" >> $GITHUB_OUTPUT
-        fi
-    
-    - name: Extract changelog
-      run: |
-        VERSION="${{ steps.version.outputs.version }}"
-        
-        # Extract changelog section for this version
-        if grep -q "## \[${VERSION}\]" CHANGELOG.md; then
-          awk "/## \[${VERSION}\]/,/## \[.*\]/{if(/## \[.*\]/ && !/## \[${VERSION}\]/) exit; print}" CHANGELOG.md | tail -n +2 > release_notes.md
-        else
-          echo "Release ${VERSION}" > release_notes.md
-          echo "" >> release_notes.md
-          git log -1 --pretty=%B >> release_notes.md
-        fi
-    
+        fetch-depth: 0
+
     - name: Download artifacts
       uses: actions/download-artifact@v4
       with:
         path: artifacts
-    
+
+    - name: Determine release type
+      id: release_type
+      run: |
+        if [[ "${{ github.ref_type }}" == "tag" ]]; then
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "type=stable" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          
+          # Check if prerelease
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "type=development" >> $GITHUB_OUTPUT
+          echo "version=latest" >> $GITHUB_OUTPUT
+          echo "tag=latest" >> $GITHUB_OUTPUT
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+        fi
+
     - name: Prepare release assets
       run: |
         mkdir -p release
-        VERSION="${{ steps.version.outputs.version }}"
+        VERSION="${{ steps.release_type.outputs.version }}"
         
-        # Create versioned binaries
-        mv artifacts/codecontext-ubuntu-latest-amd64/codecontext release/codecontext-${VERSION}-linux-amd64
-        mv artifacts/codecontext-ubuntu-latest-arm64/codecontext release/codecontext-${VERSION}-linux-arm64
-        mv artifacts/codecontext-windows-latest-amd64/codecontext.exe release/codecontext-${VERSION}-windows-amd64.exe
-        mv artifacts/codecontext-macos-13-amd64/codecontext release/codecontext-${VERSION}-darwin-amd64
-        mv artifacts/codecontext-macos-latest-arm64/codecontext release/codecontext-${VERSION}-darwin-arm64
+        if [[ "${{ steps.release_type.outputs.type }}" == "stable" ]]; then
+          # Versioned release
+          for artifact in artifacts/*/codecontext*; do
+            dir=$(dirname "$artifact")
+            platform=$(basename "$dir" | sed 's/codecontext-//')
+            filename=$(basename "$artifact")
+            ext="${filename##*.}"
+            
+            if [[ "$ext" == "exe" ]]; then
+              cp "$artifact" "release/codecontext-${VERSION}-${platform}.exe"
+            else
+              cp "$artifact" "release/codecontext-${VERSION}-${platform}"
+            fi
+          done
+        else
+          # Development release
+          cp artifacts/codecontext-linux-amd64/codecontext release/codecontext-linux-amd64
+          cp artifacts/codecontext-linux-arm64/codecontext release/codecontext-linux-arm64
+          cp artifacts/codecontext-windows-amd64/codecontext.exe release/codecontext-windows-amd64.exe
+          cp artifacts/codecontext-darwin-amd64/codecontext release/codecontext-darwin-amd64
+          cp artifacts/codecontext-darwin-arm64/codecontext release/codecontext-darwin-arm64
+        fi
         
         # Generate checksums
-        cd release && sha256sum * > checksums-${VERSION}.txt
-    
+        cd release && sha256sum * > checksums.txt
+
+    - name: Extract changelog (stable releases)
+      if: steps.release_type.outputs.type == 'stable'
+      id: changelog
+      run: |
+        VERSION="${{ steps.release_type.outputs.version }}"
+        
+        if grep -q "## \[${VERSION}\]" CHANGELOG.md; then
+          awk "/## \[${VERSION}\]/,/## \[.*\]/{if(/## \[.*\]/ && !/## \[${VERSION}\]/) exit; print}" CHANGELOG.md | tail -n +2 > release_notes.md
+        else
+          echo "Release ${VERSION}" > release_notes.md
+        fi
+
+    - name: Delete existing development release
+      if: steps.release_type.outputs.type == 'development'
+      run: |
+        gh release delete latest --yes || true
+        git push origin :refs/tags/latest || true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
-        name: "CodeContext ${{ steps.version.outputs.version }}"
-        bodyFile: release_notes.md
+        tag: ${{ steps.release_type.outputs.tag }}
+        name: ${{ steps.release_type.outputs.type == 'stable' && format('CodeContext {0}', steps.release_type.outputs.version) || 'Latest Development Build' }}
+        bodyFile: ${{ steps.release_type.outputs.type == 'stable' && 'release_notes.md' || '' }}
+        body: ${{ steps.release_type.outputs.type == 'development' && format('Latest development build from main branch.\n\n**⚠️ This is an automated development build and may be unstable.**\n\nCommit: {0}', github.sha) || '' }}
         artifacts: "release/*"
-        artifactContentType: application/octet-stream
-        makeLatest: ${{ steps.version.outputs.is_prerelease == 'false' }}
-        prerelease: ${{ steps.version.outputs.is_prerelease }}
+        makeLatest: ${{ steps.release_type.outputs.type == 'stable' && steps.release_type.outputs.prerelease == 'false' }}
+        prerelease: ${{ steps.release_type.outputs.prerelease }}
+        allowUpdates: ${{ steps.release_type.outputs.type == 'development' }}
+        replacesArtifacts: ${{ steps.release_type.outputs.type == 'development' }}
         token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,36 @@
+# GitHub Release configuration
+# https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      - dependabot
+      - github-actions
+  categories:
+    - title: 🚀 Features
+      labels:
+        - feature
+        - enhancement
+    - title: 🐛 Bug Fixes
+      labels:
+        - fix
+        - bugfix
+        - bug
+    - title: 🔒 Security
+      labels:
+        - security
+        - vulnerability
+    - title: 📚 Documentation
+      labels:
+        - documentation
+        - docs
+    - title: 🧰 Maintenance
+      labels:
+        - chore
+        - dependencies
+        - ci
+    - title: Other Changes
+      labels:
+        - "*"

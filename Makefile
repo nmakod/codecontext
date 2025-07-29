@@ -1,6 +1,6 @@
 # CodeContext Makefile for Building and Distribution
 
-VERSION ?= 2.4.0
+VERSION ?= $(shell cat VERSION)
 BINARY_NAME = codecontext
 BUILD_DIR = dist
 LDFLAGS = -ldflags "-X main.version=$(VERSION) -X main.buildDate=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ') -X main.gitCommit=$(shell git rev-parse --short HEAD)"
