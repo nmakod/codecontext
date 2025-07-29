@@ -5,6 +5,21 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0](https://github.com/nmakod/codecontext/compare/v2.4.0...v2.5.0) (2025-07-29)
+
+
+### Features
+
+* add automated versioned releases with changelog integration ([6c2a8da](https://github.com/nmakod/codecontext/commit/6c2a8dac0f2d883c8069027636959202ba65dc46))
+
+
+### Bug Fixes
+
+* redirect file watcher logs to stderr to prevent MCP protocol corruption ([18f57be](https://github.com/nmakod/codecontext/commit/18f57bef36b82ba22efa3b13f60eb550c0201b1c))
+* resolve GitHub Actions workflow failures ([f2f5e64](https://github.com/nmakod/codecontext/commit/f2f5e6443c41015180fc4ccbc798faf95cd06c41))
+* resolve thread safety issues in progress tracking and compact controller ([255417e](https://github.com/nmakod/codecontext/commit/255417ea5fa7852acf47a7431777bd177db661f3))
+* update mapstructure to v2.3.0 to resolve vulnerability ([1124330](https://github.com/nmakod/codecontext/commit/11243300e613f4bd99f5daa462b2203d1081a6ea))
+
 ## [Unreleased]
 
 ### Fixed
