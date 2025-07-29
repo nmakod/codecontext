@@ -3,6 +3,7 @@ package watcher
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,9 +99,9 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 	// Start file system event handler
 	go fw.handleEvents(ctx)
 
-	fmt.Printf("🔍 File watcher started for: %s\n", fw.targetDir)
-	fmt.Printf("   Debounce time: %v\n", fw.debounce)
-	fmt.Printf("   Watching extensions: %v\n", fw.includeExts)
+	log.Printf("🔍 File watcher started for: %s", fw.targetDir)
+	log.Printf("   Debounce time: %v", fw.debounce)
+	log.Printf("   Watching extensions: %v", fw.includeExts)
 
 	return nil
 }
@@ -198,7 +199,7 @@ func (fw *FileWatcher) handleEvents(ctx context.Context) {
 			if !ok {
 				return
 			}
-			fmt.Printf("❌ File watcher error: %v\n", err)
+			log.Printf("❌ File watcher error: %v", err)
 		}
 	}
 }
@@ -225,7 +226,7 @@ func (fw *FileWatcher) processChanges(ctx context.Context) {
 			if len(pendingChanges) > 0 {
 				err := fw.processFileChanges(pendingChanges)
 				if err != nil {
-					fmt.Printf("❌ Error processing file changes: %v\n", err)
+					log.Printf("❌ Error processing file changes: %v", err)
 				}
 				pendingChanges = nil
 			}
@@ -237,7 +238,7 @@ func (fw *FileWatcher) processChanges(ctx context.Context) {
 func (fw *FileWatcher) processFileChanges(changes []FileChange) error {
 	start := time.Now()
 
-	fmt.Printf("🔄 Processing %d file changes...\n", len(changes))
+	log.Printf("🔄 Processing %d file changes...", len(changes))
 
 	// Group changes by type
 	changedFiles := make(map[string]string)
@@ -262,8 +263,8 @@ func (fw *FileWatcher) processFileChanges(changes []FileChange) error {
 	}
 
 	duration := time.Since(start)
-	fmt.Printf("✅ Context map updated in %v\n", duration)
-	fmt.Printf("   Files processed: %d\n", len(changedFiles))
+	log.Printf("✅ Context map updated in %v", duration)
+	log.Printf("   Files processed: %d", len(changedFiles))
 
 	return nil
 }
