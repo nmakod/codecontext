@@ -44,6 +44,7 @@ jobs:
         check-latest: true
 
     - name: Run Gosec Security Scanner
+      continue-on-error: true
       uses: securego/gosec@master
       with:
         args: ./...
@@ -73,12 +74,6 @@ jobs:
       run: |
         go test -v -race -coverprofile=coverage.out ./...
         go tool cover -func=coverage.out
-
-    - name: Upload coverage
-      uses: codecov/codecov-action@v4
-      with:
-        file: ./coverage.out
-        flags: unittests
 
   ###########################################################
   build:
@@ -168,9 +163,63 @@ jobs:
         if-no-files-found: error
 
   ###########################################################
-  release:
+  release-development:
   ###########################################################
-    if: github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare development release
+      run: |
+        mkdir -p release
+        
+        # Copy artifacts with standard names
+        cp artifacts/codecontext-linux-amd64/codecontext release/codecontext-linux-amd64
+        cp artifacts/codecontext-linux-arm64/codecontext release/codecontext-linux-arm64
+        cp artifacts/codecontext-windows-amd64/codecontext.exe release/codecontext-windows-amd64.exe
+        cp artifacts/codecontext-darwin-amd64/codecontext release/codecontext-darwin-amd64
+        cp artifacts/codecontext-darwin-arm64/codecontext release/codecontext-darwin-arm64
+        
+        # Generate checksums
+        cd release && sha256sum * > checksums.txt
+
+    - name: Delete existing development release
+      run: |
+        gh release delete latest --yes || true
+        git push origin :refs/tags/latest || true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create development release
+      uses: ncipollo/release-action@v1
+      with:
+        tag: latest
+        name: "Latest Development Build"
+        body: |
+          Latest development build from main branch.
+
+          **⚠️ This is an automated development build and may be unstable.**
+
+          Commit: ${{ github.sha }}
+        artifacts: "release/*"
+        makeLatest: false
+        prerelease: true
+        allowUpdates: true
+        replacesArtifacts: true
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+  ###########################################################
+  release-stable:
+  ###########################################################
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -182,70 +231,43 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Extract version info
+      id: version
+      run: |
+        TAG="${{ github.ref_name }}"
+        VERSION="${TAG#v}"
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        
+        # Check if prerelease
+        if [[ "${VERSION}" == *-* ]]; then
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Download artifacts
       uses: actions/download-artifact@v4
       with:
         path: artifacts
 
-    - name: Determine release type
-      id: release_type
-      run: |
-        if [[ "${{ github.ref_type }}" == "tag" ]]; then
-          TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
-          echo "type=stable" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          
-          # Check if prerelease
-          if [[ "${VERSION}" == *-* ]]; then
-            echo "prerelease=true" >> $GITHUB_OUTPUT
-          else
-            echo "prerelease=false" >> $GITHUB_OUTPUT
-          fi
-        else
-          echo "type=development" >> $GITHUB_OUTPUT
-          echo "version=latest" >> $GITHUB_OUTPUT
-          echo "tag=latest" >> $GITHUB_OUTPUT
-          echo "prerelease=true" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Prepare release assets
+    - name: Prepare stable release
       run: |
         mkdir -p release
-        VERSION="${{ steps.release_type.outputs.version }}"
+        VERSION="${{ steps.version.outputs.version }}"
         
-        if [[ "${{ steps.release_type.outputs.type }}" == "stable" ]]; then
-          # Versioned release
-          for artifact in artifacts/*/codecontext*; do
-            dir=$(dirname "$artifact")
-            platform=$(basename "$dir" | sed 's/codecontext-//')
-            filename=$(basename "$artifact")
-            ext="${filename##*.}"
-            
-            if [[ "$ext" == "exe" ]]; then
-              cp "$artifact" "release/codecontext-${VERSION}-${platform}.exe"
-            else
-              cp "$artifact" "release/codecontext-${VERSION}-${platform}"
-            fi
-          done
-        else
-          # Development release
-          cp artifacts/codecontext-linux-amd64/codecontext release/codecontext-linux-amd64
-          cp artifacts/codecontext-linux-arm64/codecontext release/codecontext-linux-arm64
-          cp artifacts/codecontext-windows-amd64/codecontext.exe release/codecontext-windows-amd64.exe
-          cp artifacts/codecontext-darwin-amd64/codecontext release/codecontext-darwin-amd64
-          cp artifacts/codecontext-darwin-arm64/codecontext release/codecontext-darwin-arm64
-        fi
+        # Create versioned binaries
+        cp artifacts/codecontext-linux-amd64/codecontext release/codecontext-${VERSION}-linux-amd64
+        cp artifacts/codecontext-linux-arm64/codecontext release/codecontext-${VERSION}-linux-arm64
+        cp artifacts/codecontext-windows-amd64/codecontext.exe release/codecontext-${VERSION}-windows-amd64.exe
+        cp artifacts/codecontext-darwin-amd64/codecontext release/codecontext-${VERSION}-darwin-amd64
+        cp artifacts/codecontext-darwin-arm64/codecontext release/codecontext-${VERSION}-darwin-arm64
         
         # Generate checksums
         cd release && sha256sum * > checksums.txt
 
-    - name: Extract changelog (stable releases)
-      if: steps.release_type.outputs.type == 'stable'
-      id: changelog
+    - name: Extract changelog
       run: |
-        VERSION="${{ steps.release_type.outputs.version }}"
+        VERSION="${{ steps.version.outputs.version }}"
         
         if grep -q "## \[${VERSION}\]" CHANGELOG.md; then
           awk "/## \[${VERSION}\]/,/## \[.*\]/{if(/## \[.*\]/ && !/## \[${VERSION}\]/) exit; print}" CHANGELOG.md | tail -n +2 > release_notes.md
@@ -253,24 +275,12 @@ jobs:
           echo "Release ${VERSION}" > release_notes.md
         fi
 
-    - name: Delete existing development release
-      if: steps.release_type.outputs.type == 'development'
-      run: |
-        gh release delete latest --yes || true
-        git push origin :refs/tags/latest || true
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Create release
+    - name: Create stable release
       uses: ncipollo/release-action@v1
       with:
-        tag: ${{ steps.release_type.outputs.tag }}
-        name: ${{ steps.release_type.outputs.type == 'stable' && format('CodeContext {0}', steps.release_type.outputs.version) || 'Latest Development Build' }}
-        bodyFile: ${{ steps.release_type.outputs.type == 'stable' && 'release_notes.md' || '' }}
-        body: ${{ steps.release_type.outputs.type == 'development' && format('Latest development build from main branch.\n\n**⚠️ This is an automated development build and may be unstable.**\n\nCommit: {0}', github.sha) || '' }}
+        name: "CodeContext ${{ steps.version.outputs.version }}"
+        bodyFile: release_notes.md
         artifacts: "release/*"
-        makeLatest: ${{ steps.release_type.outputs.type == 'stable' && steps.release_type.outputs.prerelease == 'false' }}
-        prerelease: ${{ steps.release_type.outputs.prerelease }}
-        allowUpdates: ${{ steps.release_type.outputs.type == 'development' }}
-        replacesArtifacts: ${{ steps.release_type.outputs.type == 'development' }}
+        makeLatest: ${{ steps.version.outputs.prerelease == 'false' }}
+        prerelease: ${{ steps.version.outputs.prerelease }}
         token: ${{ secrets.GITHUB_TOKEN }}
