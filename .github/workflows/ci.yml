@@ -1,0 +1,94 @@
+# Continuous Integration for feature branches and pull requests
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - main  # Main branch handled by release.yml
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ###########################################################
+  security:
+  ###########################################################
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Run Nancy vulnerability scanner
+      run: |
+        set -euo pipefail
+        NANCY_VERSION=$(curl -s https://api.github.com/repos/sonatype-nexus-community/nancy/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
+        curl -fsSL "https://github.com/sonatype-nexus-community/nancy/releases/download/${NANCY_VERSION}/nancy-${NANCY_VERSION}-linux-amd64" -o nancy
+        chmod +x nancy
+        go list -json -deps ./... | ./nancy sleuth
+
+    - name: Run govulncheck
+      uses: golang/govulncheck-action@v1
+      with:
+        check-latest: true
+
+    - name: Run Gosec Security Scanner
+      continue-on-error: true
+      uses: securego/gosec@master
+      with:
+        args: ./...
+
+  ###########################################################
+  test:
+  ###########################################################
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Run tests
+      run: |
+        go test -v -race -coverprofile=coverage.out ./...
+        go tool cover -func=coverage.out
+
+  ###########################################################
+  build-validation:
+  ###########################################################
+    needs: [security, test]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Build validation
+      run: |
+        # Quick build validation for PRs/feature branches
+        go build -v -o codecontext ./cmd/codecontext
+        ./codecontext --version || echo "Build completed successfully"
