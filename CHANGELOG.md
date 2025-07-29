@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- File watcher logs redirected to stderr to prevent MCP protocol corruption
+- Fixed flaky TestMCPWatchChanges test by preventing JSON parsing errors
+- Updated mapstructure dependency to v2.3.0 to resolve security vulnerability GO-2025-3787
+
+### Security
+- Updated github.com/go-viper/mapstructure/v2 from v2.2.1 to v2.3.0 to fix information leak vulnerability
+
 ## [2.4.0] - 2025-07-29
 
 ### Added

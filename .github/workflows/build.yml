@@ -5,8 +5,8 @@ on:  # https://docs.github.com/en/actions/reference/events-that-trigger-workflow
   push:
     branches-ignore:  # build all branches except:
     - 'dependabot/**'  # prevent GHA triggered twice (once for commit to the branch and once for opening/syncing the PR)
-    tags-ignore:  # don't build tags
-    - '**'
+    tags:  # build version tags
+    - 'v*.*.*'
     paths-ignore:
     - '**/*.adoc'
     - '**/*.md'
@@ -213,4 +213,79 @@ jobs:
         prerelease: true
         allowUpdates: true
         replacesArtifacts: true
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+  ###########################################################
+  release-tag:
+  ###########################################################
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    
+    needs: build
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Git Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Need history for changelog
+    
+    - name: Extract version info
+      id: version
+      run: |
+        TAG="${{ github.ref_name }}"
+        VERSION="${TAG#v}"
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        
+        # Check if prerelease
+        if [[ "${VERSION}" == *-* ]]; then
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_prerelease=false" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Extract changelog
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        # Extract changelog section for this version
+        if grep -q "## \[${VERSION}\]" CHANGELOG.md; then
+          awk "/## \[${VERSION}\]/,/## \[.*\]/{if(/## \[.*\]/ && !/## \[${VERSION}\]/) exit; print}" CHANGELOG.md | tail -n +2 > release_notes.md
+        else
+          echo "Release ${VERSION}" > release_notes.md
+          echo "" >> release_notes.md
+          git log -1 --pretty=%B >> release_notes.md
+        fi
+    
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Prepare release assets
+      run: |
+        mkdir -p release
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        # Create versioned binaries
+        mv artifacts/codecontext-ubuntu-latest-amd64/codecontext release/codecontext-${VERSION}-linux-amd64
+        mv artifacts/codecontext-ubuntu-latest-arm64/codecontext release/codecontext-${VERSION}-linux-arm64
+        mv artifacts/codecontext-windows-latest-amd64/codecontext.exe release/codecontext-${VERSION}-windows-amd64.exe
+        mv artifacts/codecontext-macos-13-amd64/codecontext release/codecontext-${VERSION}-darwin-amd64
+        mv artifacts/codecontext-macos-latest-arm64/codecontext release/codecontext-${VERSION}-darwin-arm64
+        
+        # Generate checksums
+        cd release && sha256sum * > checksums-${VERSION}.txt
+    
+    - name: Create release
+      uses: ncipollo/release-action@v1
+      with:
+        name: "CodeContext ${{ steps.version.outputs.version }}"
+        bodyFile: release_notes.md
+        artifacts: "release/*"
+        artifactContentType: application/octet-stream
+        makeLatest: ${{ steps.version.outputs.is_prerelease == 'false' }}
+        prerelease: ${{ steps.version.outputs.is_prerelease }}
         token: ${{ secrets.GITHUB_TOKEN }}
