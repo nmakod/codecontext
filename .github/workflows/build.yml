@@ -1,0 +1,216 @@
+# https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions
+name: Build
+
+on:  # https://docs.github.com/en/actions/reference/events-that-trigger-workflows
+  push:
+    branches-ignore:  # build all branches except:
+    - 'dependabot/**'  # prevent GHA triggered twice (once for commit to the branch and once for opening/syncing the PR)
+    tags-ignore:  # don't build tags
+    - '**'
+    paths-ignore:
+    - '**/*.adoc'
+    - '**/*.md'
+    - '.act*'
+    - '.editorconfig'
+    - '.git*'
+    - '.github/*.yml'
+  pull_request:
+    paths-ignore:
+    - '**/*.adoc'
+    - '**/*.md'
+    - '.act*'
+    - '.editorconfig'
+    - '.git*'
+    - '.github/*.yml'
+  workflow_dispatch:
+    # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#workflow_dispatch
+
+
+defaults:
+  run:
+    shell: bash
+
+
+jobs:
+  ###########################################################
+  security:
+  ###########################################################
+    runs-on: ubuntu-latest  # https://github.com/actions/runner-images#available-images
+    steps:
+    - name: Git Checkout
+      uses: actions/checkout@v4  # https://github.com/actions/checkout
+
+    - name: Run Nancy vulnerability scanner
+      # https://github.com/sonatype-nexus-community/nancy 
+      run: |
+        set -euo pipefail
+
+        # Download latest Nancy binary from GitHub releases
+        NANCY_VERSION=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/sonatype-nexus-community/nancy/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
+        curl -fsSL "https://github.com/sonatype-nexus-community/nancy/releases/download/${NANCY_VERSION}/nancy-${NANCY_VERSION}-linux-amd64" -o nancy
+        chmod +x nancy
+
+        # Run Nancy on the dependency list
+        go list -json -deps ./... | ./nancy sleuth
+
+    - name: Run govulncheck
+      uses: golang/govulncheck-action@v1  # https://github.com/golang/govulncheck-action
+      with:
+        check-latest: true
+
+    - name: Run Gosec Security Scanner
+      continue-on-error: true  # FIXME there are findings
+      uses: securego/gosec@master  # https://github.com/securego/gosec
+      with:
+        args: ./...
+
+  ###########################################################
+  build:
+  ###########################################################
+    needs: security  # Run build only after security checks pass
+    runs-on: ${{ matrix.os }}  # https://github.com/actions/runner-images#available-images
+    strategy:
+      matrix:
+        # Note:
+        # We cannot cross-compile or build static binaries because Tree-sitter requires CGO (C bindings) for parsing.
+        # CGO needs matching C toolchains for the target architecture, which aren't available when cross-compiling.
+        # This is why we use native runners for each platform/architecture.
+        include:
+          # AMD64 runners
+          - os: ubuntu-latest
+            target_arch: amd64
+          - os: windows-latest
+            target_arch: amd64
+          - os: macos-13
+            target_arch: amd64
+          # ARM64 runners
+          - os: ubuntu-latest # ARM64 via QEMU
+            target_arch: arm64
+          - os: macos-latest
+            target_arch: arm64
+      fail-fast: false
+
+    steps:
+    - name: Git Checkout
+      uses: actions/checkout@v4  # https://github.com/actions/checkout
+
+    - name: Set up QEMU
+      if: ${{ runner.os == 'Linux' && matrix.target_arch == 'arm64' }}
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/arm64
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Test
+      continue-on-error: ${{ github.ref_name == 'main' }}
+      run: go test -v ./...
+
+    - name: Build
+      run: |
+        set -euo pipefail
+
+        echo "Building for ${{ runner.os }} ${{ matrix.target_arch }}..."
+
+        if [[ "${{ runner.os }}" == "Linux" && "${{ matrix.target_arch }}" == "arm64" ]]; then
+          # For Linux ARM64, we use QEMU emulation to build natively
+          echo "Building Linux ARM64 using QEMU emulation..."
+
+          # Extract Go version from go.mod
+          GO_VERSION=$(grep -E '^go [0-9]+\.[0-9]+' go.mod | awk '{print $2}')
+          echo "Detected Go version: $GO_VERSION"
+
+          docker run --rm --platform linux/arm64 \
+            -v $PWD:/workspace \
+            -w /workspace \
+            golang:${GO_VERSION} \
+            sh -c "apt-get update && apt-get install -y gcc && git config --global --add safe.directory /workspace && go build -v -o codecontext ./cmd/codecontext"
+        else
+          # Regular native build
+          go build -v -o codecontext${{ runner.os == 'Windows' && '.exe' || '' }} ./cmd/codecontext
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: codecontext-${{ matrix.os }}-${{ matrix.target_arch }}
+        path: |
+          codecontext
+          codecontext.exe
+        if-no-files-found: error
+
+
+  ###########################################################
+  release-latest:
+  ###########################################################
+    if: github.ref_name == 'main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare release assets
+      run: |
+        set -euo pipefail
+
+        mkdir -p release
+        # Rename artifacts to proper names
+        mv artifacts/codecontext-ubuntu-latest-amd64/codecontext release/codecontext-linux-amd64
+        mv artifacts/codecontext-ubuntu-latest-arm64/codecontext release/codecontext-linux-arm64
+        mv artifacts/codecontext-windows-latest-amd64/codecontext.exe release/codecontext-windows-amd64.exe
+        mv artifacts/codecontext-macos-13-amd64/codecontext release/codecontext-darwin-amd64
+        mv artifacts/codecontext-macos-latest-arm64/codecontext release/codecontext-darwin-arm64
+        # Generate checksums
+        cd release && sha256sum * > checksums.txt
+
+    - name: Delete existing latest release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+      run: |
+        # Delete the release if it exists
+        gh release delete latest --yes || true
+        # Delete the tag if it exists
+        git push origin :refs/tags/latest || true
+
+    - name: Create latest release
+      uses: ncipollo/release-action@v1
+      with:
+        tag: latest
+        name: Latest Development Build
+        body: |
+          Latest development build from main branch.
+
+          **⚠️ This is an automated development build and may be unstable.**
+
+          Last updated: ${{ github.event.head_commit.timestamp }}
+          Commit: ${{ github.sha }}
+        artifacts: "release/*"
+        artifactContentType: application/octet-stream
+        makeLatest: false
+        prerelease: true
+        allowUpdates: true
+        replacesArtifacts: true
+        token: ${{ secrets.GITHUB_TOKEN }}

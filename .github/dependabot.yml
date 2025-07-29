@@ -1,0 +1,22 @@
+# https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+version: 2
+updates:
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: weekly
+    day: monday
+    time: "12:00"
+  commit-message:
+    prefix: ci
+    prefix-development: ci
+    include: scope
+- package-ecosystem: gomod
+  directory: /
+  schedule:
+    interval: daily
+    time: "12:00"
+  commit-message:
+    prefix: deps
+    prefix-development: deps
+    include: scope
