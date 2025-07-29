@@ -1083,16 +1083,32 @@ func TestMCPConcurrentRequests(t *testing.T) {
 // Test helper to capture stderr output from server
 func captureServerLogs(t *testing.T, client *MCPClient, duration time.Duration) string {
 	var logBuffer bytes.Buffer
+	var mu sync.Mutex
 	done := make(chan bool)
 
 	go func() {
 		defer close(done)
-		io.Copy(&logBuffer, client.stderr)
+		buf := make([]byte, 1024)
+		for {
+			n, err := client.stderr.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				logBuffer.Write(buf[:n])
+				mu.Unlock()
+			}
+			if err != nil {
+				break
+			}
+		}
 	}()
 
 	time.Sleep(duration)
 
-	return logBuffer.String()
+	mu.Lock()
+	result := logBuffer.String()
+	mu.Unlock()
+	
+	return result
 }
 
 func TestMCPServerLogging(t *testing.T) {

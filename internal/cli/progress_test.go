@@ -2,10 +2,24 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// safeWriter is a thread-safe writer wrapper for testing
+type safeWriter struct {
+	writer io.Writer
+	mutex  *sync.Mutex
+}
+
+func (sw *safeWriter) Write(p []byte) (n int, err error) {
+	sw.mutex.Lock()
+	defer sw.mutex.Unlock()
+	return sw.writer.Write(p)
+}
 
 func TestNewProgressBar(t *testing.T) {
 	config := &ProgressConfig{
@@ -255,13 +269,17 @@ func TestNewSpinner(t *testing.T) {
 
 func TestSpinner_StartStop(t *testing.T) {
 	var buf bytes.Buffer
+	var bufMutex sync.Mutex
 
 	spinner := NewSpinner("Test Message")
-	spinner.writer = &buf
+	
+	// Create a thread-safe writer wrapper
+	safeWriter := &safeWriter{writer: &buf, mutex: &bufMutex}
+	spinner.writer = safeWriter
 
 	// Start spinner
 	spinner.Start()
-	if !spinner.active {
+	if !spinner.IsActive() {
 		t.Error("Spinner should be active after start")
 	}
 
@@ -270,12 +288,15 @@ func TestSpinner_StartStop(t *testing.T) {
 
 	// Stop spinner
 	spinner.Stop()
-	if spinner.active {
+	if spinner.IsActive() {
 		t.Error("Spinner should not be active after stop")
 	}
 
 	// Check that something was written
+	bufMutex.Lock()
 	output := buf.String()
+	bufMutex.Unlock()
+	
 	if len(output) == 0 {
 		t.Error("Spinner should have produced output")
 	}

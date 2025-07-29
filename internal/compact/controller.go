@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/nuthan-ms/codecontext/pkg/types"
@@ -14,6 +15,7 @@ type CompactController struct {
 	strategies map[string]Strategy
 	config     *CompactConfig
 	metrics    *CompactMetrics
+	metricsMux sync.RWMutex
 }
 
 // CompactConfig holds configuration for the compact controller
@@ -194,12 +196,16 @@ func (cc *CompactController) Compact(ctx context.Context, request *CompactReques
 		if adaptiveStrategy != "" {
 			strategyName = adaptiveStrategy
 			strategy = cc.strategies[strategyName]
+			cc.metricsMux.Lock()
 			cc.metrics.AdaptiveTriggers++
+			cc.metricsMux.Unlock()
 		}
 	}
 
 	// Track strategy usage
+	cc.metricsMux.Lock()
 	cc.metrics.StrategiesUsed[strategyName]++
+	cc.metricsMux.Unlock()
 
 	// Perform compaction
 	result, err := strategy.Compact(ctx, request)
@@ -303,11 +309,23 @@ func (cc *CompactController) AnalyzeCompactionPotential(graph *types.CodeGraph) 
 
 // GetMetrics returns current compaction metrics
 func (cc *CompactController) GetMetrics() *CompactMetrics {
-	return cc.metrics
+	cc.metricsMux.RLock()
+	defer cc.metricsMux.RUnlock()
+	
+	// Return a copy to avoid race conditions
+	metricsCopy := *cc.metrics
+	metricsCopy.StrategiesUsed = make(map[string]int64)
+	for k, v := range cc.metrics.StrategiesUsed {
+		metricsCopy.StrategiesUsed[k] = v
+	}
+	return &metricsCopy
 }
 
 // ResetMetrics resets all metrics
 func (cc *CompactController) ResetMetrics() {
+	cc.metricsMux.Lock()
+	defer cc.metricsMux.Unlock()
+	
 	cc.metrics = &CompactMetrics{
 		StrategiesUsed: make(map[string]int64),
 	}
@@ -370,6 +388,9 @@ func (cc *CompactController) noCompactionResult(graph *types.CodeGraph) *Compact
 }
 
 func (cc *CompactController) updateMetrics(result *CompactResult) {
+	cc.metricsMux.Lock()
+	defer cc.metricsMux.Unlock()
+	
 	cc.metrics.TotalCompactions++
 	cc.metrics.LastCompaction = time.Now()
 

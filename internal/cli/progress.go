@@ -337,8 +337,8 @@ func (mpb *MultiProgressBar) renderLoop() {
 }
 
 func (mpb *MultiProgressBar) renderAll() {
-	mpb.mutex.RLock()
-	defer mpb.mutex.RUnlock()
+	mpb.mutex.Lock()
+	defer mpb.mutex.Unlock()
 
 	// Clear previous lines
 	if mpb.lastLines > 0 {
@@ -423,7 +423,10 @@ func (s *Spinner) Stop() {
 	s.mutex.Lock()
 	if s.active {
 		s.active = false
-		s.stopChan <- true
+		select {
+		case s.stopChan <- true:
+		default:
+		}
 	}
 	s.mutex.Unlock()
 
@@ -431,11 +434,19 @@ func (s *Spinner) Stop() {
 	fmt.Fprint(s.writer, "\r\033[K")
 }
 
+// IsActive returns whether the spinner is currently active
+func (s *Spinner) IsActive() bool {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return s.active
+}
+
 // SetMessage updates the spinner message
 func (s *Spinner) SetMessage(message string) {
 	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	
 	s.message = message
-	s.mutex.Unlock()
 	
 	// Immediately redraw with new message to avoid text artifacts
 	if s.active {
