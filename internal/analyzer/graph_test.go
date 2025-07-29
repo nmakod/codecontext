@@ -149,9 +149,9 @@ func TestIsSupportedFile(t *testing.T) {
 		{"test.yaml", true},
 		{"test.yml", true},
 		{"test.txt", false},
-		{"test.py", false},
-		{"test.go", false},
-		{"README.md", false},
+		{"test.py", true},
+		{"test.go", true},
+		{"README.md", true},
 	}
 
 	for _, test := range tests {
