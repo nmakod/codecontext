@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2025-07-29
+
+### Added
+- **Open-Source Foundations**
+  - MIT LICENSE file for clear open-source licensing
+  - Comprehensive CONTRIBUTING.md guide with development workflow
+  - GitHub Actions CI/CD pipeline (via merged PR #1)
+  - Multi-platform binary generation and automated releases
+  - Dependabot configuration for dependency management
+
+- **Multi-Language Support Expansion**
+  - Extended file type support in graph analyzer
+  - Added support for Go (.go), Python (.py, .pyi), Java (.java), Rust (.rs)
+  - Additional JavaScript/TypeScript extensions (.mts, .cts, .mjs, .cjs)
+  - Markdown (.md) support for documentation analysis
+
+### Changed
+- Standardized GitHub username references to 'nmakod' across all documentation
+- Updated version references from 2.2.0 to 2.4.0 throughout codebase
+- Synchronized GraphBuilder.isSupportedFile with parser manager capabilities
+
+### Fixed
+- Version inconsistencies in documentation and code
+- Missing licensing information
+- Lack of contribution guidelines
+
 ## [2.2.2] - 2025-07-21
 
 ### Added

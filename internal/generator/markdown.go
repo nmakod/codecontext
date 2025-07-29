@@ -28,7 +28,7 @@ func (mg *MarkdownGenerator) Generate(graph *types.CodeGraph) (string, error) {
 	// Header
 	sb.WriteString("# CodeContext Map\n\n")
 	sb.WriteString(fmt.Sprintf("**Generated:** %s\n", time.Now().Format(time.RFC3339)))
-	sb.WriteString("**Version:** 2.0.0\n")
+	sb.WriteString("**Version:** 2.4.0\n")
 	sb.WriteString("**Status:** Generated\n\n")
 
 	// Files section
