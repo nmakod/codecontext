@@ -1,9 +1,7 @@
 name: Release Please
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:  # Manual trigger only to avoid duplicate runs
 
 permissions:
   contents: write
