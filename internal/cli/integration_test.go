@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -28,13 +29,9 @@ type TestSuite struct {
 
 // SetupTestSuite creates a new test suite with temporary directory
 func SetupTestSuite(t *testing.T) *TestSuite {
-	tempDir, err := os.MkdirTemp("", "codecontext-test-*")
-	require.NoError(t, err)
+	tempDir := t.TempDir() // Use t.TempDir() for automatic cleanup
 
 	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-
-	err = os.Chdir(tempDir)
 	require.NoError(t, err)
 
 	suite := &TestSuite{
@@ -43,7 +40,7 @@ func SetupTestSuite(t *testing.T) *TestSuite {
 		stdout:      &bytes.Buffer{},
 		stderr:      &bytes.Buffer{},
 		config: &config.Config{
-			SourcePaths: []string{"."},
+			SourcePaths: []string{tempDir}, // Use absolute path instead of "."
 			OutputPath:  filepath.Join(tempDir, "output.md"),
 			CacheDir:    filepath.Join(tempDir, ".cache"),
 			IncludePatterns: []string{
@@ -74,7 +71,7 @@ func TestGenerateCommandProgress(t *testing.T) {
 	
 	// Create additional files to ensure progress updates
 	for i := 1; i <= 15; i++ {
-		filename := fmt.Sprintf("test%d.ts", i)
+		filename := filepath.Join(suite.tempDir, fmt.Sprintf("test%d.ts", i))
 		content := fmt.Sprintf(`export const value%d = %d;
 export function test%d() {
   return "test%d";
@@ -84,23 +81,30 @@ export function test%d() {
 		require.NoError(t, err)
 	}
 
+	// Set up paths
+	outputFile := filepath.Join(suite.tempDir, "CLAUDE.md")
+	
 	// Create mock command that calls the generate function directly
 	cmd := &cobra.Command{
 		Use: "generate",
 	}
-	cmd.Flags().StringP("target", "t", ".", "target directory")
-	cmd.Flags().StringP("output", "o", "CLAUDE.md", "output file")
+	cmd.Flags().StringP("target", "t", suite.tempDir, "target directory")
+	cmd.Flags().StringP("output", "o", outputFile, "output file")
+	
+	// Bind flags to viper (required for generateContextMap to access them)
+	viper.BindPFlag("target", cmd.Flags().Lookup("target"))
+	viper.BindPFlag("output", cmd.Flags().Lookup("output"))
 	
 	// Execute the function directly
 	err := generateContextMap(cmd)
 	require.NoError(t, err)
 	
 	// Verify output file was created
-	_, err = os.Stat("CLAUDE.md")
+	_, err = os.Stat(outputFile)
 	require.NoError(t, err, "CLAUDE.md should be created")
 	
 	// Verify the file contains content (basic sanity check)
-	content, err := os.ReadFile("CLAUDE.md")
+	content, err := os.ReadFile(outputFile)
 	require.NoError(t, err)
 	assert.Greater(t, len(content), 0, "Output file should not be empty")
 }
@@ -109,12 +113,7 @@ export function test%d() {
 func (ts *TestSuite) TeardownTestSuite(t *testing.T) {
 	// Change back to original directory (ignore error if directory doesn't exist)
 	_ = os.Chdir(ts.originalDir)
-
-	// Clean up temp directory
-	err := os.RemoveAll(ts.tempDir)
-	if err != nil {
-		t.Logf("Warning: failed to remove temp directory %s: %v", ts.tempDir, err)
-	}
+	// Note: t.TempDir() automatically cleans up temp directory, no need to manually remove
 }
 
 // CreateTestFiles creates a set of test files for integration testing

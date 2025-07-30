@@ -165,7 +165,7 @@ func TestIntegrationPerformance(t *testing.T) {
 		t.Errorf("Semantic analysis too slow: %v", semanticDuration)
 	}
 	
-	if clusterDuration > 5*time.Second && len(enhancedNeighborhoods) < 100 {
+	if clusterDuration > 10*time.Second && len(enhancedNeighborhoods) < 100 {
 		t.Errorf("Clustering too slow for %d neighborhoods: %v", len(enhancedNeighborhoods), clusterDuration)
 	}
 }

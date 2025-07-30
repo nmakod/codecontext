@@ -340,11 +340,12 @@ func (gb *GraphBuilder) isSupportedFile(path string) bool {
 func (gb *GraphBuilder) shouldSkipPath(path string) bool {
 	skipDirs := []string{
 		"node_modules", ".git", ".codecontext", "dist", "build",
-		"coverage", ".nyc_output", "tmp", "temp",
+		"coverage", ".nyc_output",
 	}
 
+	// Only skip directories, not files that might be in temporary locations
 	for _, skipDir := range skipDirs {
-		if strings.Contains(path, skipDir) {
+		if strings.Contains(path, "/"+skipDir+"/") || strings.HasSuffix(path, "/"+skipDir) {
 			return true
 		}
 	}

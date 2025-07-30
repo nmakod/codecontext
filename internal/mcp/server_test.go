@@ -23,10 +23,9 @@ func createTestConfig() *MCPConfig {
 }
 
 func createTestDirectory(t *testing.T) string {
-	tmpDir, err := os.MkdirTemp("", "mcp-test-")
-	require.NoError(t, err)
+	tmpDir := t.TempDir() // Use t.TempDir() for automatic cleanup
 
-	err = populateTestDirectory(tmpDir)
+	err := populateTestDirectory(tmpDir)
 	require.NoError(t, err)
 
 	return tmpDir
@@ -90,7 +89,7 @@ func TestNewCodeContextMCPServer(t *testing.T) {
 
 func TestMCPServerAnalysis(t *testing.T) {
 	tmpDir := createTestDirectory(t)
-	defer os.RemoveAll(tmpDir)
+	// Note: t.TempDir() automatically cleans up
 
 	config := &MCPConfig{
 		Name:       "test",
