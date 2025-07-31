@@ -5,6 +5,27 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0](https://github.com/nmakod/codecontext/compare/v2.5.0...v2.6.0) (2025-07-31)
+
+
+### Features
+
+* add automated versioned releases with changelog integration ([6c2a8da](https://github.com/nmakod/codecontext/commit/6c2a8dac0f2d883c8069027636959202ba65dc46))
+* implement Phase 2 CI/CD architecture with release-please orchestration ([f4ee612](https://github.com/nmakod/codecontext/commit/f4ee6128017c78442799d3afc0d2b25db7f9d232))
+
+
+### Bug Fixes
+
+* add issues permission to resolve release-please label creation error ([3d87e4b](https://github.com/nmakod/codecontext/commit/3d87e4b8cebe6247eed2041eb2a5e0078fad7040))
+* adjust performance test thresholds for CI reliability ([5b2b973](https://github.com/nmakod/codecontext/commit/5b2b9732bda6ea711efd67514865cd126955ca15))
+* prevent duplicate workflow runs by making release-please manual only ([c860767](https://github.com/nmakod/codecontext/commit/c8607678d193383ce2c8a5d5445f599ed6066feb))
+* redirect file watcher logs to stderr to prevent MCP protocol corruption ([18f57be](https://github.com/nmakod/codecontext/commit/18f57bef36b82ba22efa3b13f60eb550c0201b1c))
+* resolve GitHub Actions workflow failures ([f2f5e64](https://github.com/nmakod/codecontext/commit/f2f5e6443c41015180fc4ccbc798faf95cd06c41))
+* resolve test isolation issues for CI reliability ([5bd804b](https://github.com/nmakod/codecontext/commit/5bd804bcef77fc4e44f6154accd1a969d7243898))
+* resolve test isolation issues for CI reliability ([dfffd8c](https://github.com/nmakod/codecontext/commit/dfffd8c5869fdee3640324ac064bae9712567c41))
+* resolve thread safety issues in progress tracking and compact controller ([255417e](https://github.com/nmakod/codecontext/commit/255417ea5fa7852acf47a7431777bd177db661f3))
+* update mapstructure to v2.3.0 to resolve vulnerability ([1124330](https://github.com/nmakod/codecontext/commit/11243300e613f4bd99f5daa462b2203d1081a6ea))
+
 ## [2.5.0](https://github.com/nmakod/codecontext/compare/v2.4.0...v2.5.0) (2025-07-29)
 
 
