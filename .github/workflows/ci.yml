@@ -90,5 +90,5 @@ jobs:
     - name: Build validation
       run: |
         # Quick build validation for PRs/feature branches
-        go build -v -o codecontext ./cmd/codecontext
+        go build -buildvcs=false -v -o codecontext ./cmd/codecontext
         ./codecontext --version || echo "Build completed successfully"

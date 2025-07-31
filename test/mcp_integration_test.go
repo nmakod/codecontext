@@ -64,7 +64,7 @@ func NewMCPClient(targetDir string, verbose bool) (*MCPClient, error) {
 	
 	// Build codecontext binary if it doesn't exist or rebuild if needed
 	if _, err := os.Stat(codecontextPath); os.IsNotExist(err) {
-		buildCmd := exec.Command("go", "build", "-o", "codecontext", "./cmd/codecontext")
+		buildCmd := exec.Command("go", "build", "-buildvcs=false", "-o", "codecontext", "./cmd/codecontext")
 		buildCmd.Dir = projectRoot
 		
 		// Capture build output for better error reporting
