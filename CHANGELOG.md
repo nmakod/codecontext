@@ -5,6 +5,13 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1](https://github.com/nmakod/codecontext/compare/v2.6.0...v2.6.1) (2025-07-31)
+
+
+### Bug Fixes
+
+* add -buildvcs=false flag to resolve CI build failures ([d00ac9e](https://github.com/nmakod/codecontext/commit/d00ac9e2e54364c5eeca2911d6461904b45f5935))
+
 ## [2.6.0](https://github.com/nmakod/codecontext/compare/v2.5.0...v2.6.0) (2025-07-31)
 
 
