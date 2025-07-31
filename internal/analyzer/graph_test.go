@@ -171,12 +171,19 @@ func TestShouldSkipPath(t *testing.T) {
 		expected bool
 	}{
 		{"src/index.ts", false},
-		{"node_modules/package/index.js", true},
-		{".git/config", true},
-		{"dist/bundle.js", true},
-		{"coverage/report.html", true},
+		{"path/node_modules/package/index.js", true},  // Contains /node_modules/
+		{"project/.git/config", true},                 // Contains /.git/
+		{"app/dist/bundle.js", true},                  // Contains /dist/
+		{"app/coverage/report.html", true},            // Contains /coverage/
 		{"test/unit.spec.ts", false},
-		{".codecontext/config.yaml", true},
+		{"project/.codecontext/config.yaml", true},    // Contains /.codecontext/
+		{"node_modules", true},                        // Ends with /node_modules
+		{".git", true},                               // Ends with /.git
+		{"dist", true},                               // Ends with /dist
+		{"coverage", true},                           // Ends with /coverage
+		{".codecontext", true},                       // Ends with /.codecontext
+		{"something_node_modules", false},            // Doesn't match pattern
+		{"git_config", false},                        // Doesn't match pattern
 	}
 
 	for _, test := range tests {

@@ -62,12 +62,23 @@ func NewMCPClient(targetDir string, verbose bool) (*MCPClient, error) {
 	
 	codecontextPath := filepath.Join(projectRoot, "codecontext")
 	
-	// Build codecontext binary if it doesn't exist
+	// Build codecontext binary if it doesn't exist or rebuild if needed
 	if _, err := os.Stat(codecontextPath); os.IsNotExist(err) {
 		buildCmd := exec.Command("go", "build", "-o", "codecontext", "./cmd/codecontext")
 		buildCmd.Dir = projectRoot
+		
+		// Capture build output for better error reporting
+		var buildOutput bytes.Buffer
+		buildCmd.Stdout = &buildOutput
+		buildCmd.Stderr = &buildOutput
+		
 		if err := buildCmd.Run(); err != nil {
-			return nil, fmt.Errorf("failed to build codecontext: %w", err)
+			return nil, fmt.Errorf("failed to build codecontext: %w\nBuild output: %s", err, buildOutput.String())
+		}
+		
+		// Verify the binary was actually created
+		if _, err := os.Stat(codecontextPath); os.IsNotExist(err) {
+			return nil, fmt.Errorf("binary was not created at expected path: %s", codecontextPath)
 		}
 	}
 	
@@ -80,6 +91,13 @@ func NewMCPClient(targetDir string, verbose bool) (*MCPClient, error) {
 	args := []string{"mcp", "--target", targetDir, "--watch=false"}
 	if verbose {
 		args = append(args, "--verbose")
+	}
+
+	// Verify binary is executable before trying to run it
+	if info, err := os.Stat(codecontextPath); err != nil {
+		return nil, fmt.Errorf("binary not found at %s: %w", codecontextPath, err)
+	} else if info.Mode()&0111 == 0 {
+		return nil, fmt.Errorf("binary at %s is not executable (mode: %v)", codecontextPath, info.Mode())
 	}
 
 	// Start the MCP server using absolute path
@@ -102,7 +120,9 @@ func NewMCPClient(targetDir string, verbose bool) (*MCPClient, error) {
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start MCP server: %w", err)
+		// Provide more context about the execution failure
+		return nil, fmt.Errorf("failed to start MCP server (binary: %s, args: %v, cwd: %s): %w", 
+			codecontextPath, args, projectRoot, err)
 	}
 
 	client := &MCPClient{

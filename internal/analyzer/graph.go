@@ -345,7 +345,8 @@ func (gb *GraphBuilder) shouldSkipPath(path string) bool {
 
 	// Only skip directories, not files that might be in temporary locations
 	for _, skipDir := range skipDirs {
-		if strings.Contains(path, "/"+skipDir+"/") || strings.HasSuffix(path, "/"+skipDir) {
+		// Check if the path contains the directory as a segment or if it's the exact directory name
+		if strings.Contains(path, "/"+skipDir+"/") || strings.HasSuffix(path, "/"+skipDir) || path == skipDir {
 			return true
 		}
 	}

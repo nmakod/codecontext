@@ -20,25 +20,20 @@ import (
 
 // TestSuite provides comprehensive CLI integration testing
 type TestSuite struct {
-	tempDir     string
-	originalDir string
-	stdout      *bytes.Buffer
-	stderr      *bytes.Buffer
-	config      *config.Config
+	tempDir string
+	stdout  *bytes.Buffer
+	stderr  *bytes.Buffer
+	config  *config.Config
 }
 
 // SetupTestSuite creates a new test suite with temporary directory
 func SetupTestSuite(t *testing.T) *TestSuite {
 	tempDir := t.TempDir() // Use t.TempDir() for automatic cleanup
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-
 	suite := &TestSuite{
-		tempDir:     tempDir,
-		originalDir: originalDir,
-		stdout:      &bytes.Buffer{},
-		stderr:      &bytes.Buffer{},
+		tempDir: tempDir,
+		stdout:  &bytes.Buffer{},
+		stderr:  &bytes.Buffer{},
 		config: &config.Config{
 			SourcePaths: []string{tempDir}, // Use absolute path instead of "."
 			OutputPath:  filepath.Join(tempDir, "output.md"),
@@ -111,9 +106,8 @@ export function test%d() {
 
 // TeardownTestSuite cleans up the test suite
 func (ts *TestSuite) TeardownTestSuite(t *testing.T) {
-	// Change back to original directory (ignore error if directory doesn't exist)
-	_ = os.Chdir(ts.originalDir)
 	// Note: t.TempDir() automatically cleans up temp directory, no need to manually remove
+	// No directory changes needed since we work with absolute paths
 }
 
 // CreateTestFiles creates a set of test files for integration testing
@@ -561,7 +555,7 @@ func TestCLI_BasicConfiguration(t *testing.T) {
 
 	// Test that configuration is properly initialized
 	assert.NotNil(t, suite.config)
-	assert.Equal(t, []string{"."}, suite.config.SourcePaths)
+	assert.Equal(t, []string{suite.tempDir}, suite.config.SourcePaths) // Use tempdir, not "."
 	assert.Contains(t, suite.config.IncludePatterns, "*.go")
 	assert.Contains(t, suite.config.IncludePatterns, "*.js")
 	assert.Contains(t, suite.config.ExcludePatterns, "node_modules/**")
