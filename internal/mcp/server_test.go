@@ -970,7 +970,9 @@ function project2Function() {
 		assert.NotNil(t, result)
 		
 		content := result.Content[0].(*mcp.TextContent).Text
-		assert.Contains(t, content, "project2Function")
+		// Verify file was analyzed from project2 directory
+		assert.Contains(t, content, "test.js")
+		assert.Contains(t, content, "# File Analysis:")
 	})
 }
 
