@@ -5,6 +5,14 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0](https://github.com/nmakod/codecontext/compare/v2.6.1...v2.7.0) (2025-08-01)
+
+
+### Features
+
+* add manifest.json for MCP desktop extension submission ([fadac3d](https://github.com/nmakod/codecontext/commit/fadac3d6d1fcab46e0b6505a2fb92d5b5258b53b))
+* implement dynamic target directory support for multi-project analysis ([62d1cd4](https://github.com/nmakod/codecontext/commit/62d1cd495a44440e5829a69a864126d7d6a1a673))
+
 ## [2.6.1](https://github.com/nmakod/codecontext/compare/v2.6.0...v2.6.1) (2025-07-31)
 
 
