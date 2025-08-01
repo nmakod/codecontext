@@ -1,0 +1,51 @@
+{
+  "name": "CodeContext",
+  "version": "2.4.0",
+  "description": "Intelligent context maps for AI-powered development - Generate comprehensive repository maps with semantic analysis",
+  "author": "nmakod",
+  "homepage": "https://github.com/nmakod/codecontext",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nmakod/codecontext.git"
+  },
+  "license": "MIT",
+  "main": "codecontext",
+  "type": "mcp-server",
+  "capabilities": {
+    "tools": [
+      "get_codebase_overview",
+      "get_file_analysis",
+      "get_symbol_info",
+      "search_symbols",
+      "get_dependencies",
+      "watch_changes",
+      "get_semantic_neighborhoods",
+      "get_framework_analysis"
+    ]
+  },
+  "platforms": {
+    "darwin": {
+      "amd64": "dist/codecontext-darwin-amd64",
+      "arm64": "dist/codecontext-darwin-arm64"
+    },
+    "win32": {
+      "amd64": "dist/codecontext.exe"
+    },
+    "linux": {
+      "amd64": "dist/codecontext-linux-amd64",
+      "arm64": "dist/codecontext-linux-arm64"
+    }
+  },
+  "features": {
+    "semantic_analysis": true,
+    "git_integration": true,
+    "incremental_updates": true,
+    "multi_language_support": true,
+    "watch_mode": true
+  },
+  "requirements": {
+    "runtime": "go",
+    "go_version": ">=1.22"
+  },
+  "note": "While this MCP server is built with Go instead of Node.js, it provides superior performance, single-binary distribution, and comprehensive codebase analysis capabilities that would greatly benefit Claude Desktop users."
+}
