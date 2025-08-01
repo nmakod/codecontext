@@ -24,14 +24,35 @@ codecontext mcp --target ./src --watch --debounce 300 --verbose
 
 ### Available Tools
 
-The MCP server provides six powerful tools:
+The MCP server provides eight powerful tools with **dynamic project targeting**:
 
 1. **`get_codebase_overview`** - Complete repository analysis
-2. **`get_file_analysis`** - Detailed file breakdown with symbols
+2. **`get_file_analysis`** - Detailed file breakdown with symbols  
 3. **`get_symbol_info`** - Symbol definitions and usage
 4. **`search_symbols`** - Search symbols across codebase
 5. **`get_dependencies`** - Import/dependency analysis
 6. **`watch_changes`** - Real-time change notifications
+7. **`get_semantic_neighborhoods`** - Git-pattern based file relationships
+8. **`get_framework_analysis`** - Framework-specific analysis
+
+### 🚀 **Multi-Project Support**
+
+All tools support an optional `target_dir` parameter, allowing you to analyze different projects without changing configurations:
+
+```bash
+# Simple configuration - works with any project
+{
+  "codecontext": {
+    "command": "codecontext", 
+    "args": ["mcp"]
+  }
+}
+```
+
+**Usage Examples:**
+- "Analyze ~/code/my-react-app"
+- "Compare ~/code/backend with ~/code/frontend" 
+- "Check dependencies in /Users/dev/projects/api"
 
 ## Configuration
 

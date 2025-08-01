@@ -159,17 +159,24 @@ codecontext mcp --target ./src --watch --verbose
 
 ### AI Assistant Integration
 
-**Claude Desktop** - Add to your MCP configuration:
+**Claude Desktop** - Simple multi-project setup:
 ```json
 {
   "mcpServers": {
     "codecontext": {
       "command": "codecontext", 
-      "args": ["mcp", "--target", "/path/to/your/project"]
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+### 🚀 Multi-Project Support
+All MCP tools now support **dynamic project targeting** - analyze any project without configuration changes:
+
+- "Analyze ~/code/my-react-app"
+- "Compare ~/code/backend with ~/code/frontend"
+- "Check dependencies in /absolute/path/to/project"
 
 ### Available MCP Tools
 
@@ -179,8 +186,11 @@ codecontext mcp --target ./src --watch --verbose
 - **`search_symbols`** - Search symbols across codebase
 - **`get_dependencies`** - Import/dependency analysis
 - **`watch_changes`** - Real-time change notifications
+- **`get_semantic_neighborhoods`** - Git-pattern based file relationships
+- **`get_framework_analysis`** - Framework-specific analysis
 
 **Benefits:**
+- ✅ **Multi-project support** - Switch between projects in conversation
 - ✅ Real-time context updates as you code
 - ✅ No manual copy/paste of context
 - ✅ Standardized protocol for all AI tools

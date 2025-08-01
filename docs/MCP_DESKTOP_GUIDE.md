@@ -131,6 +131,72 @@ You: "I want to refactor the payment module. What's connected to it?"
 Claude: [Uses get_dependencies to map all connections and suggest safe refactoring approach]
 ```
 
+## 🎯 Multi-Project Workflows
+
+### Zero-Configuration Multi-Project Support
+
+CodeContext now supports **dynamic project targeting** - analyze any project without editing configurations!
+
+#### Simple Setup (One-Time)
+```json
+{
+  "mcpServers": {
+    "codecontext": {
+      "command": "codecontext",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+#### Multi-Project Usage Examples
+
+**1. Project Comparison**
+```
+You: "Compare the authentication systems in ~/code/web-app and ~/code/mobile-app"
+
+Claude: 
+1. Analyzing ~/code/web-app authentication...
+2. Analyzing ~/code/mobile-app authentication...
+3. Here's the comparison...
+```
+
+**2. Cross-Project Learning**
+```  
+You: "How does ~/code/senior-dev-project handle error boundaries? Apply similar patterns to ~/code/my-project"
+
+Claude: [Analyzes both projects and suggests improvements]
+```
+
+**3. Multi-Repo Development**
+```
+You: "Check if the API changes in ~/code/backend break anything in ~/code/frontend"
+
+Claude: [Analyzes dependencies and interfaces across both projects]
+```
+
+**4. Architecture Analysis**
+```
+You: "What patterns can I learn from ~/code/open-source-project for my ~/code/startup-project?"
+
+Claude: [Compares architectures and suggests best practices]
+```
+
+#### Supported Path Formats
+
+- **Absolute paths**: `/Users/john/code/my-project`
+- **Home-relative**: `~/code/my-project` 
+- **Environment variables**: `$HOME/code/my-project`
+- **Default fallback**: Uses configured project when no path specified
+
+#### Benefits
+
+✅ **No JSON Editing** - Switch projects in conversation  
+✅ **Compare Projects** - Analyze multiple codebases simultaneously  
+✅ **Learn Patterns** - Study different architectural approaches  
+✅ **Context Switching** - Move between projects seamlessly  
+✅ **Backward Compatible** - Existing configurations work unchanged  
+
 ## Advanced Configuration
 
 ### Custom Settings

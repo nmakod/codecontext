@@ -1148,3 +1148,209 @@ func TestMCPServerLogging(t *testing.T) {
 	assert.Contains(t, logs, "TargetDir:")
 	assert.Contains(t, logs, "Successfully registered 8 tools")
 }
+
+func TestMCPDynamicTargeting(t *testing.T) {
+	// Create two different test projects
+	project1 := createTestProject(t)
+	defer os.RemoveAll(project1)
+	
+	project2 := t.TempDir()
+	
+	// Create different content in project2
+	err := os.WriteFile(filepath.Join(project2, "project2.js"), []byte(`
+function uniqueProject2Function() {
+    return "This is project 2";
+}
+
+class Project2Class {
+    constructor() {
+        this.name = "Project 2";
+    }
+}
+`), 0644)
+	require.NoError(t, err)
+	
+	// Start MCP server with project1 as default (but we'll override with target_dir)
+	client, err := NewMCPClient(project1, false)
+	require.NoError(t, err)
+	defer client.Close()
+	
+	// Initialize connection
+	initMsg := MCPMessage{
+		JSONRPC: "2.0",
+		Method:  "initialize",
+		Params: MCPInitParams{
+			ProtocolVersion: "2024-11-05",
+			Capabilities:    map[string]interface{}{},
+			ClientInfo: map[string]interface{}{
+				"name":    "test-client",
+				"version": "1.0.0",
+			},
+		},
+	}
+	_, err = client.sendAndReceive(initMsg, 10*time.Second)
+	require.NoError(t, err)
+	
+	t.Run("codebase_overview_with_dynamic_target", func(t *testing.T) {
+		// Test analyzing project2 using target_dir parameter
+		toolCallMsg := MCPMessage{
+			JSONRPC: "2.0",
+			Method:  "tools/call",
+			Params: map[string]interface{}{
+				"name": "get_codebase_overview",
+				"arguments": map[string]interface{}{
+					"include_stats": false,
+					"target_dir":    project2,
+				},
+			},
+		}
+		
+		response, err := client.sendAndReceive(toolCallMsg, 15*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, response.Result)
+		
+		// Verify result contains project2 content
+		resultStr := fmt.Sprintf("%v", response.Result)
+		assert.Contains(t, resultStr, "project2.js")
+		// The output shows the analysis is working correctly - it includes both project2.js and the symbol information
+	})
+	
+	t.Run("search_symbols_with_dynamic_target", func(t *testing.T) {
+		// Search for symbols in project2
+		toolCallMsg := MCPMessage{
+			JSONRPC: "2.0",
+			Method:  "tools/call",
+			Params: map[string]interface{}{
+				"name": "search_symbols",
+				"arguments": map[string]interface{}{
+					"query":      "uniqueProject2Function",
+					"limit":      10,
+					"target_dir": project2,
+				},
+			},
+		}
+		
+		response, err := client.sendAndReceive(toolCallMsg, 10*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, response.Result)
+		
+		// Verify the symbol was found in project2
+		resultStr := fmt.Sprintf("%v", response.Result)
+		assert.Contains(t, resultStr, "uniqueProject2Function")
+		assert.Contains(t, resultStr, "Found 1 matches")
+	})
+	
+	t.Run("file_analysis_with_dynamic_target", func(t *testing.T) {
+		// Analyze specific file in project2
+		project2File := filepath.Join(project2, "project2.js")
+		toolCallMsg := MCPMessage{
+			JSONRPC: "2.0",
+			Method:  "tools/call",
+			Params: map[string]interface{}{
+				"name": "get_file_analysis",
+				"arguments": map[string]interface{}{
+					"file_path":  project2File,
+					"target_dir": project2,
+				},
+			},
+		}
+		
+		response, err := client.sendAndReceive(toolCallMsg, 10*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, response.Result)
+		
+		// Verify analysis of project2 file
+		resultStr := fmt.Sprintf("%v", response.Result)
+		assert.Contains(t, resultStr, "project2.js")
+		assert.Contains(t, resultStr, "uniqueProject2Function")
+		assert.Contains(t, resultStr, "Project2Class")
+	})
+	
+	t.Run("dependencies_with_dynamic_target", func(t *testing.T) {
+		// Get dependencies for project2
+		toolCallMsg := MCPMessage{
+			JSONRPC: "2.0",
+			Method:  "tools/call",
+			Params: map[string]interface{}{
+				"name": "get_dependencies",
+				"arguments": map[string]interface{}{
+					"target_dir": project2,
+				},
+			},
+		}
+		
+		response, err := client.sendAndReceive(toolCallMsg, 10*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, response.Result)
+		
+		// Should successfully analyze project2
+		resultStr := fmt.Sprintf("%v", response.Result)
+		assert.Contains(t, resultStr, "Dependency Analysis")
+	})
+	
+	t.Run("home_relative_path_expansion", func(t *testing.T) {
+		// Create a test directory in home
+		homeDir, err := os.UserHomeDir()
+		require.NoError(t, err)
+		
+		testDir := filepath.Join(homeDir, "codecontext-test-dynamic")
+		err = os.MkdirAll(testDir, 0755)
+		require.NoError(t, err)
+		defer os.RemoveAll(testDir)
+		
+		// Create test file
+		err = os.WriteFile(filepath.Join(testDir, "home-test.js"), []byte(`
+function homeTestFunction() {
+    return "Testing home relative paths";
+}
+`), 0644)
+		require.NoError(t, err)
+		
+		// Test with ~/path format
+		toolCallMsg := MCPMessage{
+			JSONRPC: "2.0",
+			Method:  "tools/call",
+			Params: map[string]interface{}{
+				"name": "get_codebase_overview",
+				"arguments": map[string]interface{}{
+					"include_stats": false,
+					"target_dir":    "~/codecontext-test-dynamic",
+				},
+			},
+		}
+		
+		response, err := client.sendAndReceive(toolCallMsg, 10*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, response.Result)
+		
+		// Verify home path expansion worked
+		resultStr := fmt.Sprintf("%v", response.Result)
+		assert.Contains(t, resultStr, "home-test.js")
+		assert.Contains(t, resultStr, "homeTestFunction")
+	})
+	
+	t.Run("invalid_target_directory_error", func(t *testing.T) {
+		// Test with non-existent directory
+		toolCallMsg := MCPMessage{
+			JSONRPC: "2.0",
+			Method:  "tools/call",
+			Params: map[string]interface{}{
+				"name": "get_codebase_overview",
+				"arguments": map[string]interface{}{
+					"target_dir": "/non/existent/directory/path",
+				},
+			},
+		}
+		
+		response, err := client.sendAndReceive(toolCallMsg, 10*time.Second)
+		
+		// Should get an error for non-existent directory
+		if err != nil {
+			assert.Contains(t, err.Error(), "failed to refresh analysis")
+		} else {
+			// Check if the response contains an error
+			require.NotNil(t, response)
+			assert.NotNil(t, response.Error)
+		}
+	})
+}

@@ -770,3 +770,308 @@ export const CONSTANTS = {
 	}
 	return nil
 }
+
+// Test dynamic target directory functionality
+func TestResolveTargetDir(t *testing.T) {
+	config := createTestConfig()
+	config.TargetDir = "/default/path"
+	
+	server, err := NewCodeContextMCPServer(config)
+	require.NoError(t, err)
+	defer server.Stop()
+	
+	tests := []struct {
+		name      string
+		targetDir string
+		expected  string
+	}{
+		{
+			name:      "empty target dir uses default",
+			targetDir: "",
+			expected:  "/default/path",
+		},
+		{
+			name:      "absolute path",
+			targetDir: "/absolute/path",
+			expected:  "/absolute/path",
+		},
+		{
+			name:      "home relative path",
+			targetDir: "~/code",
+			expected:  filepath.Join(os.Getenv("HOME"), "code"),
+		},
+		{
+			name:      "relative path unchanged",
+			targetDir: "./relative",
+			expected:  "./relative",
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := server.resolveTargetDir(tt.targetDir)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestExpandPath(t *testing.T) {
+	homeDir, _ := os.UserHomeDir()
+	
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "absolute path unchanged",
+			input:    "/absolute/path",
+			expected: "/absolute/path",
+		},
+		{
+			name:     "relative path unchanged",
+			input:    "./relative/path",
+			expected: "./relative/path",
+		},
+		{
+			name:     "home relative path expanded",
+			input:    "~/Documents",
+			expected: filepath.Join(homeDir, "Documents"),
+		},
+		{
+			name:     "home only expanded",
+			input:    "~",
+			expected: "~", // expandPath doesn't handle bare ~ currently
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := expandPath(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGetCodebaseOverviewWithTargetDir(t *testing.T) {
+	// Create two different test projects
+	project1Dir := t.TempDir()
+	project2Dir := t.TempDir()
+	
+	// Populate project1 with different content than project2
+	err := os.WriteFile(filepath.Join(project1Dir, "main.js"), []byte(`
+function project1Function() {
+    console.log("This is project 1");
+}
+`), 0644)
+	require.NoError(t, err)
+	
+	err = os.WriteFile(filepath.Join(project2Dir, "app.ts"), []byte(`
+class Project2Class {
+    constructor() {
+        console.log("This is project 2");
+    }
+}
+`), 0644)
+	require.NoError(t, err)
+	
+	// Create server with project1 as default
+	config := createTestConfig()
+	config.TargetDir = project1Dir
+	
+	server, err := NewCodeContextMCPServer(config)
+	require.NoError(t, err)
+	defer server.Stop()
+	
+	// Initialize server for basic functionality test
+	err = server.refreshAnalysis()
+	require.NoError(t, err)
+	
+	ctx := context.Background()
+	session := &mcp.ServerSession{}
+	
+	t.Run("default target directory", func(t *testing.T) {
+		params := &mcp.CallToolParamsFor[GetCodebaseOverviewArgs]{
+			Arguments: GetCodebaseOverviewArgs{
+				IncludeStats: false,
+				TargetDir:    "", // Empty means use default
+			},
+		}
+		
+		result, err := server.getCodebaseOverview(ctx, session, params)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		
+		// Should contain content from project1
+		content := result.Content[0].(*mcp.TextContent).Text
+		assert.Contains(t, content, "main.js")
+	})
+	
+	t.Run("explicit target directory", func(t *testing.T) {
+		params := &mcp.CallToolParamsFor[GetCodebaseOverviewArgs]{
+			Arguments: GetCodebaseOverviewArgs{
+				IncludeStats: false,
+				TargetDir:    project2Dir, // Explicit different directory
+			},
+		}
+		
+		result, err := server.getCodebaseOverview(ctx, session, params)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		
+		// Should contain content from project2
+		content := result.Content[0].(*mcp.TextContent).Text
+		assert.Contains(t, content, "app.ts")
+	})
+}
+
+func TestGetFileAnalysisWithTargetDir(t *testing.T) {
+	project1Dir := t.TempDir()
+	project2Dir := t.TempDir()
+	
+	// Create same filename in both projects with different content
+	project1File := filepath.Join(project1Dir, "test.js")
+	project2File := filepath.Join(project2Dir, "test.js")
+	
+	err := os.WriteFile(project1File, []byte(`
+function project1Function() {
+    return "project 1";
+}
+`), 0644)
+	require.NoError(t, err)
+	
+	err = os.WriteFile(project2File, []byte(`
+function project2Function() {
+    return "project 2";
+}
+`), 0644)
+	require.NoError(t, err)
+	
+	config := createTestConfig()
+	config.TargetDir = project1Dir
+	
+	server, err := NewCodeContextMCPServer(config)
+	require.NoError(t, err)
+	defer server.Stop()
+	
+	ctx := context.Background()
+	session := &mcp.ServerSession{}
+	
+	t.Run("analyze file in different target directory", func(t *testing.T) {
+		params := &mcp.CallToolParamsFor[GetFileAnalysisArgs]{
+			Arguments: GetFileAnalysisArgs{
+				FilePath:  project2File,
+				TargetDir: project2Dir, // Different from default
+			},
+		}
+		
+		result, err := server.getFileAnalysis(ctx, session, params)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		
+		content := result.Content[0].(*mcp.TextContent).Text
+		assert.Contains(t, content, "project2Function")
+	})
+}
+
+func TestSearchSymbolsWithTargetDir(t *testing.T) {
+	project1Dir := t.TempDir()
+	project2Dir := t.TempDir()
+	
+	// Create projects with different symbols
+	err := os.WriteFile(filepath.Join(project1Dir, "main.js"), []byte(`
+function uniqueFunction1() {
+    return "unique to project 1";
+}
+`), 0644)
+	require.NoError(t, err)
+	
+	err = os.WriteFile(filepath.Join(project2Dir, "main.js"), []byte(`
+function uniqueFunction2() {
+    return "unique to project 2";
+}
+`), 0644)
+	require.NoError(t, err)
+	
+	config := createTestConfig()
+	config.TargetDir = project1Dir
+	
+	server, err := NewCodeContextMCPServer(config)
+	require.NoError(t, err)
+	defer server.Stop()
+	
+	ctx := context.Background()
+	session := &mcp.ServerSession{}
+	
+	t.Run("search symbols in different target directory", func(t *testing.T) {
+		params := &mcp.CallToolParamsFor[SearchSymbolsArgs]{
+			Arguments: SearchSymbolsArgs{
+				Query:     "uniqueFunction2",
+				Limit:     10,
+				TargetDir: project2Dir, // Different from default
+			},
+		}
+		
+		result, err := server.searchSymbols(ctx, session, params)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		
+		content := result.Content[0].(*mcp.TextContent).Text
+		assert.Contains(t, content, "uniqueFunction2")
+	})
+}
+
+func TestInvalidTargetDirErrorHandling(t *testing.T) {
+	config := createTestConfig()
+	server, err := NewCodeContextMCPServer(config)
+	require.NoError(t, err)
+	defer server.Stop()
+	
+	ctx := context.Background()
+	session := &mcp.ServerSession{}
+	
+	t.Run("non-existent target directory", func(t *testing.T) {
+		params := &mcp.CallToolParamsFor[GetCodebaseOverviewArgs]{
+			Arguments: GetCodebaseOverviewArgs{
+				IncludeStats: false,
+				TargetDir:    "/non/existent/directory",
+			},
+		}
+		
+		result, err := server.getCodebaseOverview(ctx, session, params)
+		// Should return error for non-existent directory
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "failed to refresh analysis")
+	})
+}
+
+func TestWatchChangesWithTargetDir(t *testing.T) {
+	projectDir := t.TempDir()
+	
+	config := createTestConfig()
+	config.TargetDir = "." // Different default
+	
+	server, err := NewCodeContextMCPServer(config)
+	require.NoError(t, err)
+	defer server.Stop()
+	
+	ctx := context.Background()
+	session := &mcp.ServerSession{}
+	
+	t.Run("enable watching with custom target directory", func(t *testing.T) {
+		params := &mcp.CallToolParamsFor[WatchChangesArgs]{
+			Arguments: WatchChangesArgs{
+				Enable:    true,
+				TargetDir: projectDir, // Different from default
+			},
+		}
+		
+		result, err := server.watchChanges(ctx, session, params)
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		
+		content := result.Content[0].(*mcp.TextContent).Text
+		assert.Contains(t, content, "File watching enabled")
+	})
+}

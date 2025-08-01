@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -36,17 +37,20 @@ type CodeContextMCPServer struct {
 
 // Tool argument structs
 type GetCodebaseOverviewArgs struct {
-	IncludeStats bool `json:"include_stats"`
+	IncludeStats bool   `json:"include_stats"`
+	TargetDir    string `json:"target_dir,omitempty"` // Optional: directory to analyze
 }
 
 type GetFileAnalysisArgs struct {
-	FilePath string `json:"file_path"`
+	FilePath  string `json:"file_path"`
+	TargetDir string `json:"target_dir,omitempty"` // Optional: directory to analyze
 }
 
 type GetSymbolInfoArgs struct {
 	SymbolName    string `json:"symbol_name"`
 	FilePath      string `json:"file_path,omitempty"`
 	FrameworkType string `json:"framework_type,omitempty"`
+	TargetDir     string `json:"target_dir,omitempty"` // Optional: directory to analyze
 }
 
 type SearchSymbolsArgs struct {
@@ -55,15 +59,18 @@ type SearchSymbolsArgs struct {
 	SymbolType    string `json:"symbol_type,omitempty"`
 	FrameworkType string `json:"framework_type,omitempty"`
 	Limit         int    `json:"limit,omitempty"`
+	TargetDir     string `json:"target_dir,omitempty"` // Optional: directory to analyze
 }
 
 type GetDependenciesArgs struct {
 	FilePath  string `json:"file_path,omitempty"`
 	Direction string `json:"direction,omitempty"`
+	TargetDir string `json:"target_dir,omitempty"` // Optional: directory to analyze
 }
 
 type WatchChangesArgs struct {
-	Enable bool `json:"enable"`
+	Enable    bool   `json:"enable"`
+	TargetDir string `json:"target_dir,omitempty"` // Optional: directory to watch
 }
 
 type GetSemanticNeighborhoodsArgs struct {
@@ -71,11 +78,13 @@ type GetSemanticNeighborhoodsArgs struct {
 	IncludeBasic bool   `json:"include_basic,omitempty"`
 	IncludeQuality bool `json:"include_quality,omitempty"`
 	MaxResults   int    `json:"max_results,omitempty"`
+	TargetDir    string `json:"target_dir,omitempty"` // Optional: directory to analyze
 }
 
 type GetFrameworkAnalysisArgs struct {
 	Framework    string `json:"framework,omitempty"`
 	IncludeStats bool   `json:"include_stats,omitempty"`
+	TargetDir    string `json:"target_dir,omitempty"` // Optional: directory to analyze
 }
 
 // NewCodeContextMCPServer creates a new MCP server instance
@@ -112,56 +121,56 @@ func (s *CodeContextMCPServer) registerTools() {
 	log.Printf("[MCP] Registering tool: get_codebase_overview")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "get_codebase_overview",
-		Description: "Get comprehensive overview of the entire codebase",
+		Description: "Get comprehensive overview of a codebase. Optional target_dir parameter allows analyzing different projects (supports ~/path and absolute paths).",
 	}, s.getCodebaseOverview)
 
 	// Tool 2: Get file analysis
 	log.Printf("[MCP] Registering tool: get_file_analysis")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "get_file_analysis",
-		Description: "Get detailed analysis of a specific file",
+		Description: "Get detailed analysis of a specific file. Optional target_dir parameter allows analyzing files in different projects.",
 	}, s.getFileAnalysis)
 
 	// Tool 3: Get symbol information
 	log.Printf("[MCP] Registering tool: get_symbol_info")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "get_symbol_info",
-		Description: "Get detailed information about a specific symbol, including framework-specific details (React components, Vue stores, Angular services, etc.)",
+		Description: "Get detailed information about a specific symbol, including framework-specific details (React components, Vue stores, Angular services, etc.). Optional target_dir parameter allows searching symbols in different projects.",
 	}, s.getSymbolInfo)
 
 	// Tool 4: Search symbols
 	log.Printf("[MCP] Registering tool: search_symbols")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "search_symbols",
-		Description: "Search for symbols across the codebase with framework-aware filtering (components, hooks, services, stores, etc.)",
+		Description: "Search for symbols across a codebase with framework-aware filtering (components, hooks, services, stores, etc.). Optional target_dir parameter allows searching in different projects.",
 	}, s.searchSymbols)
 
 	// Tool 5: Get dependencies
 	log.Printf("[MCP] Registering tool: get_dependencies")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "get_dependencies",
-		Description: "Analyze import dependencies and relationships",
+		Description: "Analyze import dependencies and relationships. Optional target_dir parameter allows analyzing dependencies in different projects.",
 	}, s.getDependencies)
 
 	// Tool 6: Watch changes (real-time)
 	log.Printf("[MCP] Registering tool: watch_changes")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "watch_changes",
-		Description: "Enable/disable real-time change notifications",
+		Description: "Enable/disable real-time change notifications. Optional target_dir parameter allows watching different project directories.",
 	}, s.watchChanges)
 
 	// Tool 7: Get semantic neighborhoods
 	log.Printf("[MCP] Registering tool: get_semantic_neighborhoods")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "get_semantic_neighborhoods",
-		Description: "Get semantic code neighborhoods using git patterns and hierarchical clustering",
+		Description: "Get semantic code neighborhoods using git patterns and hierarchical clustering. Optional target_dir parameter allows analyzing neighborhoods in different projects.",
 	}, s.getSemanticNeighborhoods)
 
 	// Tool 8: Get framework analysis
 	log.Printf("[MCP] Registering tool: get_framework_analysis")
 	mcp.AddTool(s.server, &mcp.Tool{
 		Name:        "get_framework_analysis",
-		Description: "Get comprehensive framework-specific analysis including component relationships, hook usage patterns, and framework-specific metrics",
+		Description: "Get comprehensive framework-specific analysis including component relationships, hook usage patterns, and framework-specific metrics. Optional target_dir parameter allows analyzing different projects.",
 	}, s.getFrameworkAnalysis)
 	
 	log.Printf("[MCP] Successfully registered 8 tools")
@@ -174,9 +183,12 @@ func (s *CodeContextMCPServer) getCodebaseOverview(ctx context.Context, cc *mcp.
 	log.Printf("[MCP] Tool called: get_codebase_overview with args: %+v", args)
 	start := time.Now()
 	
+	// Resolve target directory
+	targetDir := s.resolveTargetDir(args.TargetDir)
+	
 	// Ensure we have fresh analysis
 	log.Printf("[MCP] Refreshing analysis for codebase overview...")
-	if err := s.refreshAnalysis(); err != nil {
+	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
 		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
@@ -211,9 +223,12 @@ func (s *CodeContextMCPServer) getFileAnalysis(ctx context.Context, cc *mcp.Serv
 		return nil, fmt.Errorf("file_path is required")
 	}
 
+	// Resolve target directory
+	targetDir := s.resolveTargetDir(args.TargetDir)
+
 	// Ensure we have fresh analysis
 	log.Printf("[MCP] Refreshing analysis for file: %s", args.FilePath)
-	if err := s.refreshAnalysis(); err != nil {
+	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
 		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
@@ -279,9 +294,12 @@ func (s *CodeContextMCPServer) getSymbolInfo(ctx context.Context, cc *mcp.Server
 		return nil, fmt.Errorf("symbol_name is required")
 	}
 
+	// Resolve target directory
+	targetDir := s.resolveTargetDir(args.TargetDir)
+
 	// Ensure we have fresh analysis
 	log.Printf("[MCP] Refreshing analysis for symbol lookup: %s", args.SymbolName)
-	if err := s.refreshAnalysis(); err != nil {
+	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
 		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
@@ -351,9 +369,12 @@ func (s *CodeContextMCPServer) searchSymbols(ctx context.Context, cc *mcp.Server
 	}
 	log.Printf("[MCP] Searching symbols with query='%s', limit=%d", args.Query, args.Limit)
 
+	// Resolve target directory
+	targetDir := s.resolveTargetDir(args.TargetDir)
+
 	// Ensure we have fresh analysis
 	log.Printf("[MCP] Refreshing analysis for symbol search...")
-	if err := s.refreshAnalysis(); err != nil {
+	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
 		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
@@ -433,9 +454,12 @@ func (s *CodeContextMCPServer) getDependencies(ctx context.Context, cc *mcp.Serv
 	log.Printf("[MCP] Tool called: get_dependencies with args: %+v", args)
 	start := time.Now()
 	
+	// Resolve target directory
+	targetDir := s.resolveTargetDir(args.TargetDir)
+	
 	// Ensure we have fresh analysis
 	log.Printf("[MCP] Refreshing analysis for dependency analysis...")
-	if err := s.refreshAnalysis(); err != nil {
+	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
 		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
@@ -532,9 +556,12 @@ func (s *CodeContextMCPServer) watchChanges(ctx context.Context, cc *mcp.ServerS
 			}, nil
 		}
 		
+		// Resolve target directory
+		targetDir := s.resolveTargetDir(args.TargetDir)
+		
 		// Create watcher config
 		config := watcher.Config{
-			TargetDir:    s.config.TargetDir,
+			TargetDir:    targetDir,
 			OutputFile:   "CLAUDE.md", // Not used in MCP mode
 			DebounceTime: time.Duration(s.config.DebounceMs) * time.Millisecond,
 			IncludeExts:  []string{".ts", ".tsx", ".js", ".jsx", ".go", ".py", ".java", ".cpp", ".c", ".rs"},
@@ -592,9 +619,12 @@ func (s *CodeContextMCPServer) getSemanticNeighborhoods(ctx context.Context, cc 
 	args := params.Arguments
 	log.Printf("[MCP] Tool called: get_semantic_neighborhoods with args: %+v", args)
 
+	// Resolve target directory
+	targetDir := s.resolveTargetDir(args.TargetDir)
+
 	// Ensure we have fresh analysis
 	if s.graph == nil {
-		if err := s.refreshAnalysis(); err != nil {
+		if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 			log.Printf("[MCP] Failed to refresh analysis: %v", err)
 			return &mcp.CallToolResultFor[any]{
 				Content: []mcp.Content{&mcp.TextContent{Text: "Failed to analyze codebase: " + err.Error()}},
@@ -625,8 +655,12 @@ func (s *CodeContextMCPServer) getSemanticNeighborhoods(ctx context.Context, cc 
 // Helper methods
 
 func (s *CodeContextMCPServer) refreshAnalysis() error {
-	log.Printf("[MCP] Starting analysis of directory: %s", s.config.TargetDir)
-	graph, err := s.analyzer.AnalyzeDirectory(s.config.TargetDir)
+	return s.refreshAnalysisWithTargetDir(s.config.TargetDir)
+}
+
+func (s *CodeContextMCPServer) refreshAnalysisWithTargetDir(targetDir string) error {
+	log.Printf("[MCP] Starting analysis of directory: %s", targetDir)
+	graph, err := s.analyzer.AnalyzeDirectory(targetDir)
 	if err != nil {
 		log.Printf("[MCP] Analysis failed: %v", err)
 		return err
@@ -634,6 +668,21 @@ func (s *CodeContextMCPServer) refreshAnalysis() error {
 	log.Printf("[MCP] Analysis completed successfully - %d files, %d symbols", len(graph.Files), len(graph.Symbols))
 	s.graph = graph
 	return nil
+}
+
+func (s *CodeContextMCPServer) resolveTargetDir(targetDir string) string {
+	if targetDir != "" {
+		return expandPath(targetDir)
+	}
+	return s.config.TargetDir
+}
+
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[2:])
+	}
+	return path
 }
 
 // getSemanticNeighborhoodsData extracts semantic neighborhoods from the graph metadata
@@ -986,6 +1035,14 @@ func (s *CodeContextMCPServer) matchesFramework(symbol *types.Symbol, framework 
 // getFrameworkAnalysis provides comprehensive framework-specific analysis
 func (s *CodeContextMCPServer) getFrameworkAnalysis(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetFrameworkAnalysisArgs]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
+
+	// Resolve target directory
+	targetDir := s.resolveTargetDir(args.TargetDir)
+
+	// Ensure we have fresh analysis
+	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
+		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
+	}
 
 	if s.graph == nil {
 		return nil, fmt.Errorf("no graph available - ensure analysis has been performed")
