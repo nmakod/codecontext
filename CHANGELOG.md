@@ -5,6 +5,13 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1](https://github.com/nmakod/codecontext/compare/v2.7.0...v2.7.1) (2025-08-02)
+
+
+### Bug Fixes
+
+* resolve test assertion failures in MCP dynamic targeting ([b1a5eae](https://github.com/nmakod/codecontext/commit/b1a5eae978230bf7827cf27eb5cb70e7998aae0e))
+
 ## [2.7.0](https://github.com/nmakod/codecontext/compare/v2.6.1...v2.7.0) (2025-08-01)
 
 
