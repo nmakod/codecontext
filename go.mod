@@ -3,7 +3,7 @@ module github.com/nuthan-ms/codecontext
 go 1.24.5
 
 require (
-	github.com/fsnotify/fsnotify v1.8.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/modelcontextprotocol/go-sdk v0.2.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
