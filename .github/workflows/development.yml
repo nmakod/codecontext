@@ -1,5 +1,5 @@
-# Release workflow with automated versioning and publishing
-name: Release
+# Development builds for the latest changes on main
+name: Development
 
 on:
   push:
@@ -13,27 +13,34 @@ defaults:
 
 jobs:
   ###########################################################
-  release-please:
+  check-release:
   ###########################################################
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      version: ${{ steps.release.outputs.version }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+      should_build: ${{ steps.check.outputs.should_build }}
     steps:
-    - name: Run Release Please
-      uses: googleapis/release-please-action@v4
-      id: release
+    - name: Checkout
+      uses: actions/checkout@v4
       with:
-        release-type: go
+        fetch-depth: 0
+
+    - name: Check if this is a release commit
+      id: check
+      run: |
+        # Check if this commit created a release (has a version tag)
+        if git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+          echo "should_build=false" >> $GITHUB_OUTPUT
+          echo "This is a release commit, skipping development build"
+        else
+          echo "should_build=true" >> $GITHUB_OUTPUT
+          echo "This is a development commit, proceeding with build"
+        fi
 
   ###########################################################
   security:
   ###########################################################
+    if: ${{ needs.check-release.outputs.should_build == 'true' }}
+    needs: [check-release]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
@@ -66,6 +73,8 @@ jobs:
   ###########################################################
   test:
   ###########################################################
+    if: ${{ needs.check-release.outputs.should_build == 'true' }}
+    needs: [check-release]
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
@@ -90,10 +99,10 @@ jobs:
         go tool cover -func=coverage.out
 
   ###########################################################
-  build:
+  build-development:
   ###########################################################
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    needs: [release-please, security, test]
+    if: ${{ needs.check-release.outputs.should_build == 'true' }}
+    needs: [check-release, security, test]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -136,7 +145,7 @@ jobs:
         GOARCH: ${{ matrix.target_arch }}
       run: |
         # Get version and build info
-        VERSION="${{ needs.release-please.outputs.version }}"
+        VERSION="dev-$(git rev-parse --short HEAD)"
         COMMIT="${{ github.sha }}"
         BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         
@@ -171,47 +180,56 @@ jobs:
           codecontext.exe
         if-no-files-found: error
 
-
   ###########################################################
-  publish-stable:
+  publish-development:
   ###########################################################
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    needs: [release-please, build]
+    if: ${{ needs.check-release.outputs.should_build == 'true' }}
+    needs: [check-release, build-development]
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
     - name: Download artifacts
       uses: actions/download-artifact@v4
       with:
         path: artifacts
 
-    - name: Prepare stable release
+    - name: Prepare development release
       run: |
         mkdir -p release
-        VERSION="${{ needs.release-please.outputs.version }}"
         
-        # Create versioned binaries
-        cp artifacts/codecontext-linux-amd64/codecontext release/codecontext-${VERSION}-linux-amd64
-        cp artifacts/codecontext-linux-arm64/codecontext release/codecontext-${VERSION}-linux-arm64
-        cp artifacts/codecontext-windows-amd64/codecontext.exe release/codecontext-${VERSION}-windows-amd64.exe
-        cp artifacts/codecontext-darwin-amd64/codecontext release/codecontext-${VERSION}-darwin-amd64
-        cp artifacts/codecontext-darwin-arm64/codecontext release/codecontext-${VERSION}-darwin-arm64
+        # Copy artifacts with standard names
+        cp artifacts/codecontext-linux-amd64/codecontext release/codecontext-linux-amd64
+        cp artifacts/codecontext-linux-arm64/codecontext release/codecontext-linux-arm64
+        cp artifacts/codecontext-windows-amd64/codecontext.exe release/codecontext-windows-amd64.exe
+        cp artifacts/codecontext-darwin-amd64/codecontext release/codecontext-darwin-amd64
+        cp artifacts/codecontext-darwin-arm64/codecontext release/codecontext-darwin-arm64
         
         # Generate checksums
         cd release && sha256sum * > checksums.txt
 
-    - name: Upload release assets
+    - name: Delete existing development release
+      run: |
+        gh release delete latest --yes || true
+        git push origin :refs/tags/latest || true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create development release
       uses: ncipollo/release-action@v1
       with:
-        tag: ${{ needs.release-please.outputs.tag_name }}
+        tag: latest
+        name: "Latest Development Build"
+        body: |
+          Latest development build from main branch.
+
+          **⚠️ This is an automated development build and may be unstable.**
+
+          Commit: ${{ github.sha }}
         artifacts: "release/*"
+        makeLatest: false
+        prerelease: true
         allowUpdates: true
-        omitDraftDuringUpdate: true
+        replacesArtifacts: true
         token: ${{ secrets.GITHUB_TOKEN }}
