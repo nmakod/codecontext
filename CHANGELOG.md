@@ -5,6 +5,13 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.3](https://github.com/nmakod/codecontext/compare/v2.7.2...v2.7.3) (2025-08-06)
+
+
+### Bug Fixes
+
+* exclude_patterns from config.yaml now properly excludes files ([123f67e](https://github.com/nmakod/codecontext/commit/123f67e8c5e74c09bbe0dd0037778e1a0a182c62))
+
 ## [2.7.2](https://github.com/nmakod/codecontext/compare/v2.7.1...v2.7.2) (2025-08-02)
 
 
