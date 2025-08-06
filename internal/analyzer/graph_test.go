@@ -171,19 +171,19 @@ func TestShouldSkipPath(t *testing.T) {
 		expected bool
 	}{
 		{"src/index.ts", false},
-		{"path/node_modules/package/index.js", true},  // Contains /node_modules/
-		{"project/.git/config", true},                 // Contains /.git/
-		{"app/dist/bundle.js", true},                  // Contains /dist/
-		{"app/coverage/report.html", true},            // Contains /coverage/
+		{"path/node_modules/package/index.js", true}, // Contains /node_modules/
+		{"project/.git/config", true},                // Contains /.git/
+		{"app/dist/bundle.js", true},                 // Contains /dist/
+		{"app/coverage/report.html", true},           // Contains /coverage/
 		{"test/unit.spec.ts", false},
-		{"project/.codecontext/config.yaml", true},    // Contains /.codecontext/
-		{"node_modules", true},                        // Ends with /node_modules
-		{".git", true},                               // Ends with /.git
-		{"dist", true},                               // Ends with /dist
-		{"coverage", true},                           // Ends with /coverage
-		{".codecontext", true},                       // Ends with /.codecontext
-		{"something_node_modules", false},            // Doesn't match pattern
-		{"git_config", false},                        // Doesn't match pattern
+		{"project/.codecontext/config.yaml", true}, // Contains /.codecontext/
+		{"node_modules", true},                     // Ends with /node_modules
+		{".git", true},                             // Ends with /.git
+		{"dist", true},                             // Ends with /dist
+		{"coverage", true},                         // Ends with /coverage
+		{".codecontext", true},                     // Ends with /.codecontext
+		{"something_node_modules", false},          // Doesn't match pattern
+		{"git_config", false},                      // Doesn't match pattern
 	}
 
 	for _, test := range tests {
@@ -191,6 +191,52 @@ func TestShouldSkipPath(t *testing.T) {
 		if result != test.expected {
 			t.Errorf("shouldSkipPath(%q) = %v, expected %v",
 				test.path, result, test.expected)
+		}
+	}
+}
+
+func TestShouldSkipPathWithExcludePatterns(t *testing.T) {
+	builder := NewGraphBuilder()
+	builder.SetExcludePatterns([]string{
+		"node_modules/**",
+		"*.test.*",
+		"*.spec.*",
+		"__pycache__/**",
+		"vendor/**",
+		".env*",
+		"tmp/*",
+	})
+
+	tests := []struct {
+		path     string
+		expected bool
+		reason   string
+	}{
+		{"src/index.ts", false, "Normal source file should not be skipped"},
+		{"node_modules/package/index.js", true, "node_modules/** pattern should match"},
+		{"app.test.js", true, "*.test.* pattern should match"},
+		{"component.spec.ts", true, "*.spec.* pattern should match"},
+		{"__pycache__/module.pyc", true, "__pycache__/** pattern should match"},
+		{"vendor/library/file.go", true, "vendor/** pattern should match"},
+		{".env", true, ".env* pattern should match"},
+		{".env.local", true, ".env* pattern should match"},
+		{"tmp/file.txt", true, "tmp/* pattern should match"},
+		{"src/tmp/file.txt", false, "tmp/* should only match at root level"},
+		{"test/fixture.ts", false, "Should not match *.test.*"},
+		{"specfile.js", false, "Should not match *.spec.*"},
+		// Test cases for base filename matching
+		{"src/main.test.go", true, "*.test.* pattern should match base filename"},
+		{"path/to/app.test.js", true, "*.test.* pattern should match in nested paths"},
+		{"deep/nested/dir/component.spec.tsx", true, "*.spec.* pattern should match in deep paths"},
+		{"src/components/Button.test.tsx", true, "*.test.* pattern should match TypeScript test files"},
+		{"tests/unit.spec.js", true, "*.spec.* pattern should match in tests directory"},
+	}
+
+	for _, test := range tests {
+		result := builder.shouldSkipPath(test.path)
+		if result != test.expected {
+			t.Errorf("shouldSkipPath(%q) = %v, expected %v (%s)",
+				test.path, result, test.expected, test.reason)
 		}
 	}
 }
@@ -227,19 +273,19 @@ func TestGetSupportedLanguages(t *testing.T) {
 
 func TestSetProgressCallback(t *testing.T) {
 	builder := NewGraphBuilder()
-	
+
 	// Test setting callback
 	var receivedMessages []string
 	callback := func(message string) {
 		receivedMessages = append(receivedMessages, message)
 	}
-	
+
 	builder.SetProgressCallback(callback)
-	
+
 	if builder.progressCallback == nil {
 		t.Error("Progress callback was not set")
 	}
-	
+
 	// Test callback is nil initially
 	builder2 := NewGraphBuilder()
 	if builder2.progressCallback != nil {
@@ -250,45 +296,45 @@ func TestSetProgressCallback(t *testing.T) {
 func TestProgressCallbackExecution(t *testing.T) {
 	// Create a temporary directory with multiple test files to trigger progress updates
 	tmpDir := t.TempDir()
-	
+
 	// Create 15 test files to ensure we get progress updates (every 10 files)
 	for i := 1; i <= 15; i++ {
 		testFile := filepath.Join(tmpDir, "test"+string(rune(i+48))+".ts") // test1.ts, test2.ts, etc.
 		testContent := `export const value` + string(rune(i+48)) + ` = ` + string(rune(i+48)) + `;`
-		
+
 		err := os.WriteFile(testFile, []byte(testContent), 0644)
 		if err != nil {
 			t.Fatalf("Failed to create test file %d: %v", i, err)
 		}
 	}
-	
+
 	// Test with progress callback
 	builder := NewGraphBuilder()
 	var progressMessages []string
-	
+
 	builder.SetProgressCallback(func(message string) {
 		progressMessages = append(progressMessages, message)
 	})
-	
+
 	_, err := builder.AnalyzeDirectory(tmpDir)
 	if err != nil {
 		t.Fatalf("AnalyzeDirectory failed: %v", err)
 	}
-	
+
 	// Verify we received progress updates
 	if len(progressMessages) == 0 {
 		t.Error("No progress messages received")
 	}
-	
+
 	// Check for expected progress message patterns
 	foundParsingProgress := false
 	foundParsingComplete := false
 	foundRelationships := false
 	foundGitAnalysis := false
-	
+
 	for _, msg := range progressMessages {
 		t.Logf("Progress message: %s", msg)
-		
+
 		if msg == "📄 Parsing files... (10 files)" {
 			foundParsingProgress = true
 		}
@@ -302,7 +348,7 @@ func TestProgressCallbackExecution(t *testing.T) {
 			foundGitAnalysis = true
 		}
 	}
-	
+
 	if !foundParsingProgress {
 		t.Error("Expected parsing progress message not found")
 	}
@@ -320,46 +366,46 @@ func TestProgressCallbackExecution(t *testing.T) {
 func TestProgressCallbackFileCountUpdates(t *testing.T) {
 	// Create temporary directory with 25 files to test multiple updates
 	tmpDir := t.TempDir()
-	
+
 	for i := 1; i <= 25; i++ {
 		testFile := filepath.Join(tmpDir, "file"+string(rune(i/10+48))+string(rune(i%10+48))+".ts")
 		testContent := `export const item = "test";`
-		
+
 		err := os.WriteFile(testFile, []byte(testContent), 0644)
 		if err != nil {
 			t.Fatalf("Failed to create test file %d: %v", i, err)
 		}
 	}
-	
+
 	builder := NewGraphBuilder()
 	var fileCountMessages []string
-	
+
 	builder.SetProgressCallback(func(message string) {
 		// Only capture file count messages
 		if strings.Contains(message, "Parsing files...") {
 			fileCountMessages = append(fileCountMessages, message)
 		}
 	})
-	
+
 	_, err := builder.AnalyzeDirectory(tmpDir)
 	if err != nil {
 		t.Fatalf("AnalyzeDirectory failed: %v", err)
 	}
-	
+
 	// Should have updates at 10, 20 files (every 10 files)
 	expectedUpdates := []string{
 		"📄 Parsing files... (10 files)",
 		"📄 Parsing files... (20 files)",
 	}
-	
+
 	if len(fileCountMessages) < 2 {
 		t.Errorf("Expected at least 2 file count updates, got %d", len(fileCountMessages))
 	}
-	
+
 	for i, expected := range expectedUpdates {
 		if i < len(fileCountMessages) {
 			if fileCountMessages[i] != expected {
-				t.Errorf("File count update %d: expected %q, got %q", 
+				t.Errorf("File count update %d: expected %q, got %q",
 					i, expected, fileCountMessages[i])
 			}
 		} else {
@@ -371,23 +417,23 @@ func TestProgressCallbackFileCountUpdates(t *testing.T) {
 func TestProgressCallbackWithNoFiles(t *testing.T) {
 	// Test with empty directory
 	tmpDir := t.TempDir()
-	
+
 	builder := NewGraphBuilder()
 	var progressMessages []string
-	
+
 	builder.SetProgressCallback(func(message string) {
 		progressMessages = append(progressMessages, message)
 	})
-	
+
 	_, err := builder.AnalyzeDirectory(tmpDir)
 	if err != nil {
 		t.Fatalf("AnalyzeDirectory failed: %v", err)
 	}
-	
+
 	// Should still get completion messages even with no files
 	foundParsingComplete := false
 	foundRelationships := false
-	
+
 	for _, msg := range progressMessages {
 		if msg == "✅ Parsing complete (0 files)" {
 			foundParsingComplete = true
@@ -396,7 +442,7 @@ func TestProgressCallbackWithNoFiles(t *testing.T) {
 			foundRelationships = true
 		}
 	}
-	
+
 	if !foundParsingComplete {
 		t.Error("Expected parsing complete message for empty directory")
 	}
@@ -407,12 +453,12 @@ func TestProgressCallbackWithNoFiles(t *testing.T) {
 
 func TestProgressMessageFormats(t *testing.T) {
 	tests := []struct {
-		name     string
+		name      string
 		fileCount int
-		expected []string
+		expected  []string
 	}{
 		{
-			name:     "single_update",
+			name:      "single_update",
 			fileCount: 12,
 			expected: []string{
 				"📄 Parsing files... (10 files)",
@@ -420,17 +466,17 @@ func TestProgressMessageFormats(t *testing.T) {
 			},
 		},
 		{
-			name:     "multiple_updates", 
+			name:      "multiple_updates",
 			fileCount: 35,
 			expected: []string{
 				"📄 Parsing files... (10 files)",
-				"📄 Parsing files... (20 files)", 
+				"📄 Parsing files... (20 files)",
 				"📄 Parsing files... (30 files)",
 				"✅ Parsing complete (35 files)",
 			},
 		},
 		{
-			name:     "exact_ten",
+			name:      "exact_ten",
 			fileCount: 10,
 			expected: []string{
 				"📄 Parsing files... (10 files)",
@@ -442,33 +488,33 @@ func TestProgressMessageFormats(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
-			
+
 			// Create the specified number of test files
 			for i := 1; i <= tt.fileCount; i++ {
 				testFile := filepath.Join(tmpDir, fmt.Sprintf("test%d.ts", i))
 				testContent := fmt.Sprintf(`export const value%d = %d;`, i, i)
-				
+
 				err := os.WriteFile(testFile, []byte(testContent), 0644)
 				if err != nil {
 					t.Fatalf("Failed to create test file %d: %v", i, err)
 				}
 			}
-			
+
 			builder := NewGraphBuilder()
 			var actualMessages []string
-			
+
 			builder.SetProgressCallback(func(message string) {
 				// Only capture parsing messages for this test
 				if strings.Contains(message, "Parsing") {
 					actualMessages = append(actualMessages, message)
 				}
 			})
-			
+
 			_, err := builder.AnalyzeDirectory(tmpDir)
 			if err != nil {
 				t.Fatalf("AnalyzeDirectory failed: %v", err)
 			}
-			
+
 			// Verify expected messages are present
 			for _, expected := range tt.expected {
 				found := false
@@ -479,7 +525,7 @@ func TestProgressMessageFormats(t *testing.T) {
 					}
 				}
 				if !found {
-					t.Errorf("Expected message %q not found in actual messages: %v", 
+					t.Errorf("Expected message %q not found in actual messages: %v",
 						expected, actualMessages)
 				}
 			}
@@ -489,30 +535,30 @@ func TestProgressMessageFormats(t *testing.T) {
 
 func TestProgressMessagesOrder(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// Create 15 test files
 	for i := 1; i <= 15; i++ {
 		testFile := filepath.Join(tmpDir, fmt.Sprintf("test%d.ts", i))
 		testContent := `export const value = 1;`
-		
+
 		err := os.WriteFile(testFile, []byte(testContent), 0644)
 		if err != nil {
 			t.Fatalf("Failed to create test file %d: %v", i, err)
 		}
 	}
-	
+
 	builder := NewGraphBuilder()
 	var allMessages []string
-	
+
 	builder.SetProgressCallback(func(message string) {
 		allMessages = append(allMessages, message)
 	})
-	
+
 	_, err := builder.AnalyzeDirectory(tmpDir)
 	if err != nil {
 		t.Fatalf("AnalyzeDirectory failed: %v", err)
 	}
-	
+
 	// Verify message order and progression
 	expectedOrder := []string{
 		"📄 Parsing files... (10 files)",
@@ -521,7 +567,7 @@ func TestProgressMessagesOrder(t *testing.T) {
 		"✅ Relationships built",
 		"📊 Analyzing git history...",
 	}
-	
+
 	// Check that messages appear in the correct order
 	messageIndex := 0
 	for _, expected := range expectedOrder {
@@ -534,7 +580,7 @@ func TestProgressMessagesOrder(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("Expected message %q not found in correct order. All messages: %v", 
+			t.Errorf("Expected message %q not found in correct order. All messages: %v",
 				expected, allMessages)
 		}
 	}
@@ -542,50 +588,50 @@ func TestProgressMessagesOrder(t *testing.T) {
 
 func TestProgressConfigurableInterval(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// Create 15 test files
 	for i := 1; i <= 15; i++ {
 		testFile := filepath.Join(tmpDir, fmt.Sprintf("test%d.ts", i))
 		testContent := `export const value = 1;`
-		
+
 		err := os.WriteFile(testFile, []byte(testContent), 0644)
 		if err != nil {
 			t.Fatalf("Failed to create test file %d: %v", i, err)
 		}
 	}
-	
+
 	// Test with custom interval of 5 files
 	builder := NewGraphBuilder()
 	builder.SetProgressInterval(5)
-	
+
 	var progressMessages []string
 	builder.SetProgressCallback(func(message string) {
 		if strings.Contains(message, "Parsing files...") {
 			progressMessages = append(progressMessages, message)
 		}
 	})
-	
+
 	_, err := builder.AnalyzeDirectory(tmpDir)
 	if err != nil {
 		t.Fatalf("AnalyzeDirectory failed: %v", err)
 	}
-	
+
 	// Should have updates at 5, 10, 15 files
 	expectedUpdates := []string{
 		"📄 Parsing files... (5 files)",
 		"📄 Parsing files... (10 files)",
 		"📄 Parsing files... (15 files)",
 	}
-	
+
 	if len(progressMessages) != 3 {
-		t.Errorf("Expected 3 progress updates with interval 5, got %d: %v", 
+		t.Errorf("Expected 3 progress updates with interval 5, got %d: %v",
 			len(progressMessages), progressMessages)
 	}
-	
+
 	for i, expected := range expectedUpdates {
 		if i < len(progressMessages) {
 			if progressMessages[i] != expected {
-				t.Errorf("Progress update %d: expected %q, got %q", 
+				t.Errorf("Progress update %d: expected %q, got %q",
 					i, expected, progressMessages[i])
 			}
 		}
@@ -594,20 +640,20 @@ func TestProgressConfigurableInterval(t *testing.T) {
 
 func TestProgressConfig(t *testing.T) {
 	builder := NewGraphBuilder()
-	
+
 	// Test setting progress config
 	config := ProgressConfig{
 		Interval:       5,
 		ShowPercentage: true,
 	}
-	
+
 	builder.SetProgressConfig(config)
-	
+
 	// Verify internal state
 	if builder.progressConfig.Interval != 5 {
 		t.Errorf("Expected interval 5, got %d", builder.progressConfig.Interval)
 	}
-	
+
 	if !builder.progressConfig.ShowPercentage {
 		t.Error("Expected ShowPercentage to be true")
 	}

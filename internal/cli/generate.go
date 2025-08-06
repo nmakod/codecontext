@@ -94,17 +94,26 @@ func generateContextMap(cmd *cobra.Command) error {
 
 	// Create graph builder and analyze directory
 	builder := analyzer.NewGraphBuilder()
-	
+
 	// Set cache if available
 	if persistentCache != nil {
 		builder.SetCache(persistentCache)
 	}
-	
+
+	// Set exclude patterns from config
+	excludePatterns := viper.GetStringSlice("exclude_patterns")
+	if len(excludePatterns) > 0 {
+		builder.SetExcludePatterns(excludePatterns)
+		if viper.GetBool("verbose") {
+			fmt.Printf("🚫 Excluding patterns: %v\n", excludePatterns)
+		}
+	}
+
 	// Set up progress callback for real-time updates
 	builder.SetProgressCallback(func(message string) {
 		progressManager.UpdateIndeterminate(message)
 	})
-	
+
 	graph, err := builder.AnalyzeDirectory(targetDir)
 	if err != nil {
 		return fmt.Errorf("failed to analyze directory: %w", err)

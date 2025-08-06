@@ -26,6 +26,7 @@ type GraphBuilder struct {
 	cache            *cache.PersistentCache
 	progressCallback func(string)
 	progressConfig   ProgressConfig
+	excludePatterns  []string
 }
 
 // NewGraphBuilder creates a new graph builder
@@ -40,7 +41,7 @@ func NewGraphBuilder() *GraphBuilder {
 			Metadata: &types.GraphMetadata{},
 		},
 		progressConfig: ProgressConfig{
-			Interval:       10,   // Default: update every 10 files
+			Interval:       10,    // Default: update every 10 files
 			ShowPercentage: false, // Default: don't show percentage (requires pre-counting)
 		},
 	}
@@ -49,6 +50,11 @@ func NewGraphBuilder() *GraphBuilder {
 // SetCache sets the persistent cache for the graph builder
 func (gb *GraphBuilder) SetCache(c *cache.PersistentCache) {
 	gb.cache = c
+}
+
+// SetExcludePatterns sets the exclude patterns for the graph builder
+func (gb *GraphBuilder) SetExcludePatterns(patterns []string) {
+	gb.excludePatterns = patterns
 }
 
 // SetProgressCallback sets a callback function for progress updates
@@ -96,12 +102,17 @@ func (gb *GraphBuilder) AnalyzeDirectory(targetDir string) (*types.CodeGraph, er
 		}
 
 		// Skip certain directories
-		if gb.shouldSkipPath(path) {
+		// Convert to relative path for better pattern matching
+		relPath, err := filepath.Rel(targetDir, path)
+		if err != nil {
+			relPath = path // fallback to absolute path
+		}
+		if gb.shouldSkipPath(relPath) || gb.shouldSkipPath(path) {
 			return nil
 		}
 
 		fileCount++
-		
+
 		// Update progress at configured intervals for staged display
 		if gb.progressCallback != nil && fileCount%gb.progressConfig.Interval == 0 {
 			gb.progressCallback(fmt.Sprintf("📄 Parsing files... (%d files)", fileCount))
@@ -124,7 +135,7 @@ func (gb *GraphBuilder) AnalyzeDirectory(targetDir string) (*types.CodeGraph, er
 		gb.progressCallback("🔗 Building relationships...")
 	}
 	gb.buildFileRelationships()
-	
+
 	if gb.progressCallback != nil {
 		gb.progressCallback("✅ Relationships built")
 	}
@@ -140,7 +151,7 @@ func (gb *GraphBuilder) AnalyzeDirectory(targetDir string) (*types.CodeGraph, er
 			gb.graph.Metadata.Configuration = make(map[string]interface{})
 		}
 		gb.graph.Metadata.Configuration["semantic_neighborhoods"] = semanticResult
-		
+
 		if gb.progressCallback != nil {
 			gb.progressCallback("✅ Git analysis complete")
 		}
@@ -316,7 +327,7 @@ func (gb *GraphBuilder) isSupportedFile(path string) bool {
 		".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs",
 		// Go
 		".go",
-		// Python  
+		// Python
 		".py", ".pyi",
 		// Java
 		".java",
@@ -338,16 +349,52 @@ func (gb *GraphBuilder) isSupportedFile(path string) bool {
 
 // shouldSkipPath checks if a path should be skipped during analysis
 func (gb *GraphBuilder) shouldSkipPath(path string) bool {
+	// Default skip directories
 	skipDirs := []string{
 		"node_modules", ".git", ".codecontext", "dist", "build",
 		"coverage", ".nyc_output",
 	}
 
-	// Only skip directories, not files that might be in temporary locations
+	// Check default skip directories
 	for _, skipDir := range skipDirs {
 		// Check if the path contains the directory as a segment or if it's the exact directory name
 		if strings.Contains(path, "/"+skipDir+"/") || strings.HasSuffix(path, "/"+skipDir) || path == skipDir {
 			return true
+		}
+	}
+
+	// Check exclude patterns from config
+	for _, pattern := range gb.excludePatterns {
+		// Use filepath.Match for glob pattern matching
+		matched, err := filepath.Match(pattern, path)
+		if err == nil && matched {
+			return true
+		}
+
+		// Also check against just the filename for patterns like *.test.*
+		baseName := filepath.Base(path)
+		if baseName != path { // Only if path contains directories
+			matched, err = filepath.Match(pattern, baseName)
+			if err == nil && matched {
+				return true
+			}
+		}
+
+		// Also check if the pattern matches any part of the path (for patterns like "node_modules/**")
+		// This handles patterns with ** which filepath.Match doesn't support natively
+		if strings.Contains(pattern, "**") {
+			// Convert ** to a simpler pattern for basic matching
+			simplePattern := strings.ReplaceAll(pattern, "/**", "")
+			simplePattern = strings.ReplaceAll(simplePattern, "**", "*")
+
+			// Check if any segment of the path matches
+			parts := strings.Split(path, string(filepath.Separator))
+			for i := range parts {
+				subPath := filepath.Join(parts[:i+1]...)
+				if matched, err := filepath.Match(simplePattern, subPath); err == nil && matched {
+					return true
+				}
+			}
 		}
 	}
 
@@ -384,14 +431,14 @@ type SemanticAnalysisResult struct {
 
 // SemanticAnalysisMetadata contains metadata about the semantic analysis
 type SemanticAnalysisMetadata struct {
-	IsGitRepository       bool          `json:"is_git_repository"`
-	AnalysisPeriodDays    int           `json:"analysis_period_days"`
-	TotalNeighborhoods    int           `json:"total_neighborhoods"`
-	TotalClusters         int           `json:"total_clusters"`
-	FilesWithPatterns     int           `json:"files_with_patterns"`
-	AverageClusterSize    float64       `json:"average_cluster_size"`
-	AnalysisTime          time.Duration `json:"analysis_time"`
-	QualityScores         QualityScores `json:"quality_scores"`
+	IsGitRepository    bool          `json:"is_git_repository"`
+	AnalysisPeriodDays int           `json:"analysis_period_days"`
+	TotalNeighborhoods int           `json:"total_neighborhoods"`
+	TotalClusters      int           `json:"total_clusters"`
+	FilesWithPatterns  int           `json:"files_with_patterns"`
+	AverageClusterSize float64       `json:"average_cluster_size"`
+	AnalysisTime       time.Duration `json:"analysis_time"`
+	QualityScores      QualityScores `json:"quality_scores"`
 }
 
 // QualityScores contains overall quality metrics for the clustering
@@ -404,7 +451,7 @@ type QualityScores struct {
 // buildSemanticNeighborhoods analyzes git patterns and builds semantic neighborhoods
 func (gb *GraphBuilder) buildSemanticNeighborhoods(targetDir string) (*SemanticAnalysisResult, error) {
 	start := time.Now()
-	
+
 	// Initialize git analyzer
 	gitAnalyzer, err := git.NewGitAnalyzer(targetDir)
 	if err != nil {
@@ -416,7 +463,7 @@ func (gb *GraphBuilder) buildSemanticNeighborhoods(targetDir string) (*SemanticA
 			},
 		}, nil
 	}
-	
+
 	// Check if this is a git repository
 	if !gitAnalyzer.IsGitRepository() {
 		return &SemanticAnalysisResult{
@@ -490,7 +537,7 @@ func (gb *GraphBuilder) buildSemanticNeighborhoods(targetDir string) (*SemanticA
 
 	// Calculate quality scores
 	qualityScores := gb.calculateQualityScores(clusteredNeighborhoods)
-	
+
 	// Calculate average cluster size
 	avgClusterSize := 0.0
 	if len(clusteredNeighborhoods) > 0 {

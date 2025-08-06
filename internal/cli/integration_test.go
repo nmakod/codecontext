@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func TestGenerateCommandProgress(t *testing.T) {
 
 	// Create multiple test files to trigger progress updates
 	suite.CreateTestFiles(t)
-	
+
 	// Create additional files to ensure progress updates
 	for i := 1; i <= 15; i++ {
 		filename := filepath.Join(suite.tempDir, fmt.Sprintf("test%d.ts", i))
@@ -71,33 +72,33 @@ func TestGenerateCommandProgress(t *testing.T) {
 export function test%d() {
   return "test%d";
 }`, i, i, i, i)
-		
+
 		err := os.WriteFile(filename, []byte(content), 0644)
 		require.NoError(t, err)
 	}
 
 	// Set up paths
 	outputFile := filepath.Join(suite.tempDir, "CLAUDE.md")
-	
+
 	// Create mock command that calls the generate function directly
 	cmd := &cobra.Command{
 		Use: "generate",
 	}
 	cmd.Flags().StringP("target", "t", suite.tempDir, "target directory")
 	cmd.Flags().StringP("output", "o", outputFile, "output file")
-	
+
 	// Bind flags to viper (required for generateContextMap to access them)
 	viper.BindPFlag("target", cmd.Flags().Lookup("target"))
 	viper.BindPFlag("output", cmd.Flags().Lookup("output"))
-	
+
 	// Execute the function directly
 	err := generateContextMap(cmd)
 	require.NoError(t, err)
-	
+
 	// Verify output file was created
 	_, err = os.Stat(outputFile)
 	require.NoError(t, err, "CLAUDE.md should be created")
-	
+
 	// Verify the file contains content (basic sanity check)
 	content, err := os.ReadFile(outputFile)
 	require.NoError(t, err)
@@ -359,8 +360,36 @@ func (ts *TestSuite) scanFiles() ([]string, error) {
 
 			// Check exclude patterns
 			for _, pattern := range ts.config.ExcludePatterns {
+				// Check full path
 				if matched, _ := filepath.Match(pattern, path); matched {
 					return nil
+				}
+
+				// Check relative path
+				relPath, _ := filepath.Rel(sourcePath, path)
+				if matched, _ := filepath.Match(pattern, relPath); matched {
+					return nil
+				}
+
+				// Check base filename for patterns like *.test.*
+				baseName := filepath.Base(path)
+				if matched, _ := filepath.Match(pattern, baseName); matched {
+					return nil
+				}
+
+				// Handle ** patterns
+				if strings.Contains(pattern, "**") {
+					simplePattern := strings.ReplaceAll(pattern, "/**", "")
+					simplePattern = strings.ReplaceAll(simplePattern, "**", "*")
+
+					// Check if any segment matches
+					parts := strings.Split(relPath, string(filepath.Separator))
+					for i := range parts {
+						subPath := filepath.Join(parts[:i+1]...)
+						if matched, _ := filepath.Match(simplePattern, subPath); matched {
+							return nil
+						}
+					}
 				}
 			}
 
@@ -547,6 +576,68 @@ func TestCLI_ErrorHandling_InvalidSourcePath(t *testing.T) {
 	files, err := suite.scanFiles()
 	assert.Error(t, err)
 	assert.Nil(t, files)
+}
+
+func TestCLI_ExcludePatterns(t *testing.T) {
+	suite := SetupTestSuite(t)
+	defer suite.TeardownTestSuite(t)
+
+	// Create files that should be excluded
+	files := map[string]string{
+		"main.go":                       "package main",
+		"main.test.go":                  "package main",
+		"app.test.js":                   "console.log('test')",
+		"component.spec.ts":             "describe('test', () => {})",
+		"node_modules/package/index.js": "module.exports = {}",
+		"vendor/lib/file.go":            "package lib",
+		"__pycache__/module.pyc":        "binary content",
+		".env":                          "SECRET=value",
+		".env.local":                    "LOCAL_SECRET=value",
+		"src/valid.go":                  "package src",
+	}
+
+	for filePath, content := range files {
+		fullPath := filepath.Join(suite.tempDir, filePath)
+		err := os.MkdirAll(filepath.Dir(fullPath), 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(fullPath, []byte(content), 0644)
+		require.NoError(t, err)
+	}
+
+	// Set exclude patterns matching the default config
+	suite.config.ExcludePatterns = []string{
+		"node_modules/**",
+		".git/**",
+		"*.test.*",
+		"*.spec.*",
+		"__pycache__/**",
+		"vendor/**",
+		".env*",
+	}
+	suite.config.IncludePatterns = []string{"*.go", "*.js", "*.ts"}
+
+	files_found, err := suite.scanFiles()
+	require.NoError(t, err)
+
+	// Should only find main.go and src/valid.go
+	assert.Len(t, files_found, 2)
+
+	// Check that only the expected files were found
+	foundMap := make(map[string]bool)
+	for _, file := range files_found {
+		rel, _ := filepath.Rel(suite.tempDir, file)
+		foundMap[rel] = true
+	}
+
+	assert.True(t, foundMap["main.go"], "main.go should be included")
+	assert.True(t, foundMap["src/valid.go"], "src/valid.go should be included")
+	assert.False(t, foundMap["main.test.go"], "main.test.go should be excluded")
+	assert.False(t, foundMap["app.test.js"], "app.test.js should be excluded")
+	assert.False(t, foundMap["component.spec.ts"], "component.spec.ts should be excluded")
+	assert.False(t, foundMap["node_modules/package/index.js"], "node_modules files should be excluded")
+	assert.False(t, foundMap["vendor/lib/file.go"], "vendor files should be excluded")
+	assert.False(t, foundMap[".env"], ".env should be excluded")
+	assert.False(t, foundMap[".env.local"], ".env.local should be excluded")
 }
 
 func TestCLI_BasicConfiguration(t *testing.T) {
