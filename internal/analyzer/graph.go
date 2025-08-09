@@ -21,7 +21,33 @@ const (
 	DefaultProgressInterval = 10
 	MinProgressInterval     = 1
 	MaxCachedPatterns       = 1000 // Prevent memory leaks from excessive caching
+	MaxNormalizationCache   = 1000 // Maximum entries in normalization caches
 )
+
+// Memory pools for hot path allocations to reduce GC pressure
+var (
+	// Pool for string slices used in path component splitting
+	stringSlicePool = sync.Pool{
+		New: func() interface{} {
+			// Pre-allocate with capacity for typical path depth (8 components)
+			// This covers most real-world paths efficiently
+			return make([]string, 0, 8)
+		},
+	}
+)
+
+// getStringSlice retrieves a string slice from the pool for hot path allocations
+func getStringSlice() []string {
+	slice := stringSlicePool.Get().([]string)
+	return slice[:0] // Reset length but keep capacity
+}
+
+// putStringSlice returns a string slice to the pool for reuse
+func putStringSlice(slice []string) {
+	if cap(slice) <= 32 { // Only pool reasonably sized slices to prevent memory bloat
+		stringSlicePool.Put(slice)
+	}
+}
 
 // deduplicate removes duplicate patterns from a slice
 // Empty patterns are automatically filtered out
@@ -212,6 +238,11 @@ type GraphBuilder struct {
 	cachedPatterns []string // Cached merged patterns to avoid repeated allocation
 	patternsDirty  bool     // Whether cached patterns need to be regenerated
 
+	// Path normalization cache to avoid redundant operations
+	normCacheMu     sync.RWMutex
+	normalizeCache  map[string]string // Cache for normalizePath results
+	patternCache    map[string]string // Cache for normalizeForPattern results
+
 	// Error handling
 	logger *log.Logger // Optional logger for pattern errors
 }
@@ -235,6 +266,10 @@ func NewGraphBuilder() *GraphBuilder {
 		excludePatterns:    []string{},
 		includePatterns:    []string{},
 		patternsDirty:      true, // Force initial cache build
+		
+		// Initialize normalization caches with reasonable initial capacity
+		normalizeCache:  make(map[string]string, 256),
+		patternCache:    make(map[string]string, 256),
 	}
 }
 
@@ -252,17 +287,80 @@ func (gb *GraphBuilder) SetCache(c *cache.PersistentCache) {
 
 // normalizePath ensures consistent path format across platforms
 func (gb *GraphBuilder) normalizePath(path string) string {
+	// Check cache first (fast path with read lock)
+	gb.normCacheMu.RLock()
+	if cached, exists := gb.normalizeCache[path]; exists {
+		gb.normCacheMu.RUnlock()
+		return cached
+	}
+	gb.normCacheMu.RUnlock()
+	
 	// Clean the path to remove redundant elements like "." and ".."
-	return filepath.Clean(path)
+	normalized := filepath.Clean(path)
+	
+	// Cache the result (write lock)
+	gb.normCacheMu.Lock()
+	// Check cache size to prevent memory leaks
+	if len(gb.normalizeCache) < MaxNormalizationCache {
+		gb.normalizeCache[path] = normalized
+	}
+	gb.normCacheMu.Unlock()
+	
+	return normalized
 }
 
 // normalizeForPattern converts path to forward slashes for consistent pattern matching
 // This is essential for cross-platform glob pattern matching
 func (gb *GraphBuilder) normalizeForPattern(path string) string {
-	// First normalize backslashes to forward slashes for cross-platform consistency
-	normalized := strings.ReplaceAll(path, "\\", "/")
-	// Then clean the path and convert to forward slashes
-	return filepath.ToSlash(filepath.Clean(normalized))
+	// Check cache first (fast path with read lock)
+	gb.normCacheMu.RLock()
+	if cached, exists := gb.patternCache[path]; exists {
+		gb.normCacheMu.RUnlock()
+		return cached
+	}
+	gb.normCacheMu.RUnlock()
+	
+	var normalized string
+	
+	// Handle UNC paths specially to preserve the double slash prefix
+	if strings.HasPrefix(path, "\\\\") {
+		// UNC path: \\server\share -> //server/share
+		// Use strings.Builder for efficient string construction
+		var builder strings.Builder
+		builder.WriteString("//")
+		builder.WriteString(strings.TrimPrefix(path, "\\\\"))
+		unc := builder.String()
+		
+		// Replace remaining backslashes with forward slashes
+		unc = strings.ReplaceAll(unc, "\\", "/")
+		// Clean the path but preserve the UNC prefix
+		cleaned := filepath.Clean(unc)
+		
+		// filepath.Clean might convert // to /, so restore it
+		if !strings.HasPrefix(cleaned, "//") {
+			builder.Reset()
+			builder.WriteString("//")
+			builder.WriteString(strings.TrimPrefix(cleaned, "/"))
+			normalized = builder.String()
+		} else {
+			normalized = cleaned
+		}
+	} else {
+		// First normalize backslashes to forward slashes for cross-platform consistency
+		temp := strings.ReplaceAll(path, "\\", "/")
+		// Then clean the path and convert to forward slashes
+		normalized = filepath.ToSlash(filepath.Clean(temp))
+	}
+	
+	// Cache the result (write lock)
+	gb.normCacheMu.Lock()
+	// Check cache size to prevent memory leaks
+	if len(gb.patternCache) < MaxNormalizationCache {
+		gb.patternCache[path] = normalized
+	}
+	gb.normCacheMu.Unlock()
+	
+	return normalized
 }
 
 // validateImportPath ensures import paths don't escape the project directory
@@ -270,8 +368,25 @@ func (gb *GraphBuilder) normalizeForPattern(path string) string {
 func (gb *GraphBuilder) validateImportPath(importPath, baseDir string) error {
 	cleaned := filepath.Clean(importPath)
 	
-	// Check for directory traversal attempts
-	if strings.Contains(cleaned, "..") {
+	// Check for actual directory traversal attempts (not just files with dots)
+	// We need to look for "../" patterns or standalone ".." components
+	hasTraversal := false
+	
+	// Split path into components to check for actual ".." directory references
+	// Use pooled slice to reduce allocations in hot path
+	components := getStringSlice()
+	components = append(components, strings.Split(strings.ReplaceAll(cleaned, "\\", "/"), "/")...)
+	
+	for _, component := range components {
+		if component == ".." {
+			hasTraversal = true
+			break
+		}
+	}
+	
+	putStringSlice(components)
+	
+	if hasTraversal {
 		// Resolve to absolute path and verify it's within project boundaries
 		// We need to find the project root, not just the current file's directory
 		abs := filepath.Join(baseDir, cleaned)
@@ -344,6 +459,19 @@ func (gb *GraphBuilder) SetExcludePatterns(patterns []string) {
 	}
 
 	gb.patternsDirty = true // Mark patterns as dirty to force cache rebuild
+	
+	// Clear normalization caches since patterns have changed
+	gb.clearNormalizationCaches()
+}
+
+// clearNormalizationCaches clears the path normalization caches
+func (gb *GraphBuilder) clearNormalizationCaches() {
+	gb.normCacheMu.Lock()
+	defer gb.normCacheMu.Unlock()
+	
+	// Clear both caches to ensure fresh normalization
+	gb.normalizeCache = make(map[string]string, 256)
+	gb.patternCache = make(map[string]string, 256)
 }
 
 // SetUseDefaultExcludes sets whether to use default exclude patterns
@@ -354,6 +482,7 @@ func (gb *GraphBuilder) SetUseDefaultExcludes(use bool) {
 	if gb.useDefaultExcludes != use {
 		gb.useDefaultExcludes = use
 		gb.patternsDirty = true // Mark patterns as dirty since defaults changed
+		gb.clearNormalizationCaches() // Clear caches when default patterns change
 	}
 }
 
@@ -776,6 +905,29 @@ func (gb *GraphBuilder) matchesPattern(path string, patterns []string) bool {
 			}
 		}
 
+		// Check individual path components for patterns like *temp*
+		// This allows matching directory names within paths
+		pathComponents := getStringSlice()
+		pathComponents = append(pathComponents, strings.Split(patternPath, "/")...)
+		
+		matched := false
+		for _, component := range pathComponents {
+			if component != "" { // Skip empty components
+				if m, err := gb.checkPatternMatch(normalizedPattern, component); err != nil {
+					gb.logPatternError(pattern, err)
+					continue
+				} else if m {
+					matched = true
+					break
+				}
+			}
+		}
+		
+		putStringSlice(pathComponents)
+		if matched {
+			return true
+		}
+
 		// Handle ** patterns which filepath.Match doesn't support natively
 		if strings.Contains(normalizedPattern, "**") {
 			if gb.matchesDoubleStarPattern(patternPath, normalizedPattern) {
@@ -814,23 +966,76 @@ func (gb *GraphBuilder) hasDirectorySeparator(path string) bool {
 
 // matchesDoubleStarPattern handles patterns with ** wildcards
 func (gb *GraphBuilder) matchesDoubleStarPattern(path, pattern string) bool {
-	// Convert ** to a simpler pattern for basic matching
-	simplePattern := strings.ReplaceAll(pattern, "/**", "")
-	simplePattern = strings.ReplaceAll(simplePattern, "**", "*")
+	// Handle different ** patterns:
+	// 1. **/filename.ext - match filename at any depth
+	// 2. prefix/**/suffix - match prefix and suffix with any levels between
+	// 3. **/*.ext - match any file with extension at any depth
+	
+	// Use pooled slices to reduce allocations in recursive pattern matching
+	pathParts := getStringSlice()
+	patternParts := getStringSlice()
+	
+	pathParts = append(pathParts, strings.Split(path, "/")...)
+	patternParts = append(patternParts, strings.Split(pattern, "/")...)
+	
+	result := gb.matchDoubleStarRecursive(pathParts, patternParts, 0, 0)
+	
+	putStringSlice(pathParts)
+	putStringSlice(patternParts)
+	
+	return result
+}
 
-	// Check if any segment of the path matches
-	// Use forward slash for consistent splitting (path is already normalized)
-	parts := strings.Split(path, "/")
-	for i := range parts {
-		subPath := strings.Join(parts[:i+1], "/")
-		if matched, err := gb.checkPatternMatch(simplePattern, subPath); err != nil {
-			gb.logPatternError(simplePattern, err)
-			continue
-		} else if matched {
+// matchDoubleStarRecursive recursively matches path and pattern parts handling **
+func (gb *GraphBuilder) matchDoubleStarRecursive(pathParts, patternParts []string, pathIdx, patternIdx int) bool {
+	// If we've matched all pattern parts, check if we've consumed all path parts
+	if patternIdx >= len(patternParts) {
+		return pathIdx >= len(pathParts)
+	}
+	
+	// If we've consumed all path parts but have more pattern parts
+	if pathIdx >= len(pathParts) {
+		// Only OK if remaining patterns are all ** (which can match zero directories)
+		for i := patternIdx; i < len(patternParts); i++ {
+			if patternParts[i] != "**" {
+				return false
+			}
+		}
+		return true
+	}
+	
+	currentPattern := patternParts[patternIdx]
+	
+	// Handle ** - it can match zero or more directory levels
+	if currentPattern == "**" {
+		// Try matching ** with zero directories (skip it)
+		if gb.matchDoubleStarRecursive(pathParts, patternParts, pathIdx, patternIdx+1) {
 			return true
 		}
+		
+		// Try matching ** with one or more directories
+		for i := pathIdx + 1; i <= len(pathParts); i++ {
+			if gb.matchDoubleStarRecursive(pathParts, patternParts, i, patternIdx+1) {
+				return true
+			}
+		}
+		return false
 	}
-	return false
+	
+	// Handle regular pattern matching for current part
+	currentPath := pathParts[pathIdx]
+	matched, err := gb.checkPatternMatch(currentPattern, currentPath)
+	if err != nil {
+		gb.logPatternError(currentPattern, err)
+		return false
+	}
+	
+	if !matched {
+		return false
+	}
+	
+	// Continue with next parts
+	return gb.matchDoubleStarRecursive(pathParts, patternParts, pathIdx+1, patternIdx+1)
 }
 
 // GetSupportedLanguages returns the list of supported languages

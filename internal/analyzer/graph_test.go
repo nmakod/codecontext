@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -1092,5 +1093,439 @@ func BenchmarkCrossPlatformPatternMatching(b *testing.B) {
 		for _, path := range testPaths {
 			builder.shouldSkipPath(path)
 		}
+	}
+}
+
+// Security and Advanced Test Cases
+
+func TestAdvancedDirectoryTraversal(t *testing.T) {
+	builder := NewGraphBuilder()
+	baseDir := "/home/user/project"
+	
+	tests := []struct {
+		name        string
+		importPath  string
+		expectError bool
+		description string
+	}{
+		// Advanced traversal attempts
+		{"mixed_separators_attack", "./lib\\..\\../etc/passwd", true, "Mixed separator traversal"},
+		{"excessive_traversal", "../../../../../../../../etc/passwd", true, "Excessive upward traversal"},
+		{"hidden_in_path", "legitimate/path/../../../etc/passwd", true, "Hidden traversal in legitimate path"},
+		{"double_dot_variations", "lib/...//etc/passwd", false, "Invalid double dot should be handled"},
+		{"trailing_traversal", "lib/file/../../../etc/passwd", true, "Traversal after filename"},
+		
+		// System directory access attempts
+		{"passwd_file", "../../../etc/passwd", true, "Direct passwd file access"},
+		{"shadow_file", "../../../etc/shadow", true, "Shadow file access attempt"},
+		{"hosts_file", "../../../etc/hosts", true, "Hosts file access attempt"},
+		{"bin_directory", "../../../bin/sh", true, "Binary directory access"},
+		{"usr_bin_access", "../../../usr/bin/whoami", true, "Usr/bin access attempt"},
+		{"sbin_access", "../../../sbin/init", true, "Sbin access attempt"},
+		
+		// Windows system paths
+		{"windows_system32", "../../../Windows/System32/cmd.exe", true, "Windows System32 access"},
+		{"windows_drivers", "../../../Windows/System32/drivers/etc/hosts", true, "Windows drivers access"},
+		
+		// Legitimate cases that should pass
+		{"sibling_directory", "../components/Button.tsx", false, "Legitimate sibling access"},
+		{"grandparent_ok", "../../shared/utils.js", false, "Reasonable grandparent access"},
+		{"current_and_parent", "./lib/../index.js", false, "Current and parent combination"},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := builder.validateImportPath(test.importPath, baseDir)
+			
+			if test.expectError && err == nil {
+				t.Errorf("validateImportPath(%q) expected error but got none (%s)", 
+					test.importPath, test.description)
+			} else if !test.expectError && err != nil {
+				t.Errorf("validateImportPath(%q) unexpected error: %v (%s)", 
+					test.importPath, err, test.description)
+			}
+		})
+	}
+}
+
+func TestInvalidGlobPatterns(t *testing.T) {
+	builder := NewGraphBuilder()
+	
+	// Test that malformed patterns don't crash the system
+	malformedPatterns := []string{
+		"file[",           // Unclosed bracket
+		"file[abc",        // Incomplete bracket
+		"file[z-a]",       // Invalid range
+		"file\\",          // Trailing escape
+		"[",               // Just bracket
+		"]",               // Just closing bracket
+		"file[[]",         // Nested brackets
+	}
+	
+	// These should not crash the system
+	builder.SetExcludePatterns(malformedPatterns)
+	
+	testPaths := []string{
+		"file.go",
+		"file[.go",
+		"fileabc.go",
+		"files.go",
+	}
+	
+	for _, path := range testPaths {
+		// Should not crash, even with malformed patterns
+		result := builder.shouldSkipPath(path)
+		t.Logf("Path %q with malformed patterns: %v", path, result)
+	}
+}
+
+func TestSpecialCharacterPaths(t *testing.T) {
+	builder := NewGraphBuilder()
+	builder.SetUseDefaultExcludes(false)
+	builder.SetExcludePatterns([]string{"*.test.*", "*temp*"})
+	
+	tests := []struct {
+		name     string
+		path     string
+		expected bool
+		reason   string
+	}{
+		// Paths with spaces
+		{"spaces_in_path", "src/path with spaces/file.go", false, "Spaces should be handled"},
+		{"spaces_test_file", "src/test file.test.js", true, "Spaces with test pattern"},
+		
+		// Special characters
+		{"hyphen_underscore", "src/file-name_with-chars.go", false, "Hyphens and underscores"},
+		{"dots_in_name", "src/file.name.with.dots.go", false, "Multiple dots in filename"},
+		{"special_chars", "src/file!@#$%^&()_+.go", false, "Special characters in name"},
+		
+		// Unicode characters
+		{"unicode_path", "路径/文件.go", false, "Unicode characters should work"},
+		{"unicode_test", "路径/测试.test.js", true, "Unicode with test pattern"},
+		
+		// Parentheses and brackets
+		{"parentheses", "src/(component)/file.go", false, "Parentheses in path"},
+		{"square_brackets", "src/[version]/file.go", false, "Square brackets in path"},
+		
+		// Temp pattern matching
+		{"temp_dir", "tmp/temp/file.go", true, "Should match temp pattern"},
+		{"temporary", "src/temporary_file.go", true, "Should match temp pattern"},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := builder.shouldSkipPath(test.path)
+			if result != test.expected {
+				t.Errorf("shouldSkipPath(%q) = %v, expected %v (%s)",
+					test.path, result, test.expected, test.reason)
+			}
+		})
+	}
+}
+
+func TestAbsolutePathNormalization(t *testing.T) {
+	builder := NewGraphBuilder()
+	
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Unix absolute paths
+		{"unix_absolute", "/home/user/project/main.go", "/home/user/project/main.go"},
+		{"unix_root", "/main.go", "/main.go"},
+		{"unix_with_traversal", "/home/user/../user/project/main.go", "/home/user/project/main.go"},
+		
+		// Windows absolute paths (when converted)
+		{"windows_absolute", "C:\\Users\\user\\project\\main.go", "C:/Users/user/project/main.go"},
+		{"windows_drive_only", "C:\\main.go", "C:/main.go"},
+		{"windows_mixed", "C:/Users\\user/project\\main.go", "C:/Users/user/project/main.go"},
+		
+		// Network paths
+		{"unc_basic", "\\\\server\\share\\file.go", "//server/share/file.go"},
+		{"unc_nested", "\\\\server\\share\\folder\\subfolder\\file.go", "//server/share/folder/subfolder/file.go"},
+		
+		// Edge cases
+		{"absolute_with_dots", "/home/./user/../user/file.go", "/home/user/file.go"},
+		{"multiple_slashes", "/home///user//file.go", "/home/user/file.go"},
+		{"trailing_slash_absolute", "/home/user/project/", "/home/user/project"},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := builder.normalizeForPattern(test.input)
+			if result != test.expected {
+				t.Errorf("normalizeForPattern(%q) = %q, expected %q", 
+					test.input, result, test.expected)
+			}
+		})
+	}
+}
+
+func TestPatternPrecedence(t *testing.T) {
+	builder := NewGraphBuilder()
+	builder.SetUseDefaultExcludes(false)
+	
+	// Test complex pattern precedence with multiple rules
+	builder.SetExcludePatterns([]string{
+		"*.test.*",              // Exclude all test files
+		"!critical.test.js",     // But include critical test
+		"test/**",               // Exclude test directory
+		"!test/fixtures/**",     // But include fixtures
+		"temp/**",               // Exclude temp directory
+		"!temp/keep/**",         // But keep some temp files
+		"**/*.backup",           // Exclude backup files everywhere
+		"!important.backup",     // But keep important backup
+	})
+	
+	tests := []struct {
+		name     string
+		path     string
+		expected bool
+		reason   string
+	}{
+		// Test file patterns
+		{"regular_test", "src/app.test.js", true, "Should be excluded by *.test.*"},
+		{"critical_test", "critical.test.js", false, "Should be included by !critical.test.js"},
+		{"critical_test_nested", "src/critical.test.js", false, "Critical test in nested path"},
+		
+		// Directory-based patterns
+		{"test_dir_file", "test/unit.js", true, "Should be excluded by test/**"},
+		{"test_fixtures", "test/fixtures/data.json", false, "Should be included by !test/fixtures/**"},
+		{"test_fixtures_nested", "test/fixtures/nested/data.json", false, "Nested fixtures should be included"},
+		
+		// Temp directory patterns
+		{"temp_file", "temp/cache.tmp", true, "Should be excluded by temp/**"},
+		{"temp_keep", "temp/keep/important.txt", false, "Should be included by !temp/keep/**"},
+		{"temp_keep_nested", "temp/keep/nested/file.txt", false, "Nested keep files should be included"},
+		
+		// Backup file patterns
+		{"backup_file", "src/old.backup", true, "Should be excluded by **/*.backup"},
+		{"important_backup", "important.backup", false, "Should be included by !important.backup"},
+		{"important_backup_nested", "src/important.backup", false, "Important backup in nested path"},
+		
+		// Non-matching patterns
+		{"normal_file", "src/main.go", false, "Normal file should not be excluded"},
+		{"normal_js", "src/app.js", false, "Normal JS file should not be excluded"},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := builder.shouldSkipPath(test.path)
+			if result != test.expected {
+				t.Errorf("shouldSkipPath(%q) = %v, expected %v (%s)",
+					test.path, result, test.expected, test.reason)
+			}
+		})
+	}
+}
+
+func TestEmptyAndEdgeCasePaths(t *testing.T) {
+	builder := NewGraphBuilder()
+	
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Empty and whitespace
+		{"empty_string", "", "."},
+		{"single_dot", ".", "."},
+		{"double_dot", "..", ".."},
+		{"just_slash", "/", "/"},
+		{"just_backslash", "\\", "/"},
+		
+		// Whitespace handling
+		{"leading_space", " file.go", " file.go"},
+		{"trailing_space", "file.go ", "file.go "},
+		{"internal_spaces", "my file.go", "my file.go"},
+		
+		// Multiple separators
+		{"many_slashes", "a///b///c", "a/b/c"},
+		{"many_backslashes", "a\\\\\\b\\\\\\c", "a/b/c"},
+		{"mixed_many", "a//\\\\//b", "a/b"},
+		
+		// Extreme traversal
+		{"many_dots", "a/../../../b", "../../b"},
+		{"mixed_dots", "./a/.././../b", "../b"},
+		{"dots_and_slashes", ".///.././//b", "../b"},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := builder.normalizeForPattern(test.input)
+			if result != test.expected {
+				t.Errorf("normalizeForPattern(%q) = %q, expected %q", 
+					test.input, result, test.expected)
+			}
+		})
+	}
+}
+
+func TestConcurrentPathNormalization(t *testing.T) {
+	builder := NewGraphBuilder()
+	builder.SetExcludePatterns([]string{
+		"*.test.*",
+		"node_modules/**",
+		"build/**",
+		"temp/**",
+	})
+	
+	// Test concurrent access to path normalization
+	var wg sync.WaitGroup
+	numGoroutines := 100
+	pathsPerGoroutine := 100
+	
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			
+			for j := 0; j < pathsPerGoroutine; j++ {
+				path := fmt.Sprintf("src/file%d_%d.go", goroutineID, j)
+				testPath := fmt.Sprintf("test/file%d_%d.test.js", goroutineID, j)
+				windowsPath := fmt.Sprintf("src\\windows%d_%d.go", goroutineID, j)
+				
+				// These should not cause data races or crashes
+				builder.shouldSkipPath(path)
+				builder.shouldSkipPath(testPath)
+				builder.shouldSkipPath(windowsPath)
+				
+				builder.normalizePath(path)
+				builder.normalizeForPattern(windowsPath)
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	// If we get here without data races or crashes, the test passes
+}
+
+func TestLargePathHandling(t *testing.T) {
+	builder := NewGraphBuilder()
+	
+	tests := []struct {
+		name   string
+		length int
+		valid  bool
+	}{
+		{"normal_path", 50, true},
+		{"long_path", 300, true},
+		{"very_long_path", 1000, true},
+		{"extreme_path", 4000, true}, // Near Unix path limit
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Create path of specified length
+			segment := strings.Repeat("a", 10)
+			segments := test.length / 10
+			pathParts := make([]string, segments)
+			for i := 0; i < segments; i++ {
+				pathParts[i] = segment
+			}
+			longPath := strings.Join(pathParts, "/") + "/file.go"
+			
+			// Test normalization doesn't crash or hang
+			result := builder.normalizePath(longPath)
+			if len(result) == 0 && test.valid {
+				t.Errorf("normalizePath returned empty string for valid long path")
+			}
+			
+			// Test pattern matching doesn't crash
+			matches := builder.shouldSkipPath(longPath)
+			_ = matches // We just care that it doesn't crash
+		})
+	}
+}
+
+func TestNilAndErrorHandling(t *testing.T) {
+	builder := NewGraphBuilder()
+	
+	// Test nil pattern slice handling
+	builder.SetExcludePatterns(nil)
+	result := builder.shouldSkipPath("test/file.go")
+	if result != false {
+		t.Errorf("Expected false for nil patterns, got %v", result)
+	}
+	
+	// Test empty pattern slice
+	builder.SetExcludePatterns([]string{})
+	result = builder.shouldSkipPath("test/file.go") 
+	if result != false {
+		t.Errorf("Expected false for empty patterns, got %v", result)
+	}
+	
+	// Test pattern slice with empty strings
+	builder.SetExcludePatterns([]string{"", "*.test.*", ""})
+	result = builder.shouldSkipPath("app.test.js")
+	if result != true {
+		t.Errorf("Expected true for test file with mixed empty patterns, got %v", result)
+	}
+	
+	// Test nil progress callback (should not crash)
+	builder.SetProgressCallback(nil)
+	// This should not crash when called internally
+	
+	// Test empty base directory for import validation
+	err := builder.validateImportPath("../test.js", "")
+	if err == nil {
+		t.Log("Empty base directory handled gracefully")
+	}
+	
+	// Test very deep directory validation
+	deepPath := strings.Repeat("../", 10) + "etc/passwd"
+	err = builder.validateImportPath(deepPath, "/home/user/project")
+	if err == nil {
+		t.Errorf("Expected error for very deep traversal, got nil")
+	}
+}
+
+func TestDoubleStarPatternEdgeCases(t *testing.T) {
+	builder := NewGraphBuilder()
+	builder.SetUseDefaultExcludes(false)
+	
+	tests := []struct {
+		name     string
+		pattern  string
+		path     string
+		expected bool
+		reason   string
+	}{
+		// ** at beginning
+		{"double_star_start", "**/test.js", "deep/nested/test.js", true, "** should match any depth"},
+		{"double_star_start_root", "**/test.js", "test.js", true, "** should match root level"},
+		
+		// ** in middle
+		{"double_star_middle", "src/**/test.js", "src/components/deep/test.js", true, "** should match nested paths"},
+		{"double_star_middle_direct", "src/**/test.js", "src/test.js", true, "** should match direct children"},
+		
+		// ** at end
+		{"double_star_end", "node_modules/**", "node_modules/react/index.js", true, "** should match all descendants"},
+		{"double_star_end_direct", "node_modules/**", "node_modules/package.json", true, "** should match direct files"},
+		
+		// Multiple ** patterns
+		{"multiple_double_star", "**/node_modules/**", "deep/node_modules/react/index.js", true, "Multiple ** should work"},
+		{"adjacent_double_star", "**/**", "any/path/file.js", true, "Adjacent ** should work"},
+		
+		// ** with other patterns
+		{"double_star_with_glob", "**/*.test.*", "deep/nested/app.test.js", true, "** with other globs"},
+		{"double_star_complex", "src/**/components/*.tsx", "src/pages/components/Button.tsx", true, "Complex ** pattern"},
+		
+		// Edge cases that shouldn't match
+		{"double_star_wrong_extension", "**/test.js", "deep/nested/test.ts", false, "Wrong extension shouldn't match"},
+		{"double_star_wrong_prefix", "test/**", "testing/file.js", false, "Wrong prefix shouldn't match"},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			builder.SetExcludePatterns([]string{test.pattern})
+			result := builder.shouldSkipPath(test.path)
+			
+			if result != test.expected {
+				t.Errorf("Pattern %q with path %q: got %v, expected %v (%s)",
+					test.pattern, test.path, result, test.expected, test.reason)
+			}
+		})
 	}
 }
