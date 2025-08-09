@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nuthan-ms/codecontext/internal/analyzer"
@@ -100,12 +101,31 @@ func generateContextMap(cmd *cobra.Command) error {
 		builder.SetCache(persistentCache)
 	}
 
+	// Set use_default_excludes from config (default true)
+	useDefaultExcludes := true
+	if viper.IsSet("use_default_excludes") {
+		useDefaultExcludes = viper.GetBool("use_default_excludes")
+	}
+	builder.SetUseDefaultExcludes(useDefaultExcludes)
+	
 	// Set exclude patterns from config
 	excludePatterns := viper.GetStringSlice("exclude_patterns")
 	if len(excludePatterns) > 0 {
 		builder.SetExcludePatterns(excludePatterns)
 		if viper.GetBool("verbose") {
-			fmt.Printf("🚫 Excluding patterns: %v\n", excludePatterns)
+			// Count include patterns (starting with !)
+			includeCount := 0
+			for _, p := range excludePatterns {
+				if strings.HasPrefix(p, "!") {
+					includeCount++
+				}
+			}
+			excludeCount := len(excludePatterns) - includeCount
+			
+			fmt.Printf("🚫 Exclude patterns: %d, Include overrides: %d\n", excludeCount, includeCount)
+			if !useDefaultExcludes {
+				fmt.Println("   ⚠️  Default excludes disabled")
+			}
 		}
 	}
 

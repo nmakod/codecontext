@@ -2,9 +2,12 @@ package analyzer
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nuthan-ms/codecontext/internal/cache"
@@ -12,6 +15,180 @@ import (
 	"github.com/nuthan-ms/codecontext/internal/parser"
 	"github.com/nuthan-ms/codecontext/pkg/types"
 )
+
+// Constants for configuration
+const (
+	DefaultProgressInterval = 10
+	MinProgressInterval     = 1
+	MaxCachedPatterns       = 1000 // Prevent memory leaks from excessive caching
+)
+
+// deduplicate removes duplicate patterns from a slice
+// Empty patterns are automatically filtered out
+func deduplicate(patterns []string) []string {
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(patterns)) // struct{} uses 0 bytes per entry
+	result := make([]string, 0, len(patterns))
+
+	for _, pattern := range patterns {
+		if pattern == "" { // Skip empty patterns early
+			continue
+		}
+		if _, exists := seen[pattern]; !exists {
+			seen[pattern] = struct{}{}
+			result = append(result, pattern)
+		}
+	}
+
+	return result
+}
+
+// Default exclude patterns with lazy initialization for thread safety
+var (
+	defaultPatterns     []string
+	defaultPatternsOnce sync.Once
+)
+
+// getDefaultExcludePatterns returns the default exclude patterns with lazy initialization
+// This ensures thread-safe access and avoids package initialization order issues
+func getDefaultExcludePatterns() []string {
+	defaultPatternsOnce.Do(func() {
+		defaultPatterns = deduplicate([]string{
+			// JavaScript/TypeScript
+			"node_modules/**",
+			".next/**",
+			".nuxt/**",
+			".cache/**",
+			".parcel-cache/**",
+			"bower_components/**",
+
+			// Python
+			"__pycache__/**",
+			"*.py[cod]",
+			"*$py.class",
+			".venv/**",
+			"venv/**",
+			"env/**",
+			".Python",
+			".pytest_cache/**",
+			".mypy_cache/**",
+			"*.egg-info/**",
+			".tox/**",
+			".eggs/**",
+			"htmlcov/**",
+			".hypothesis/**",
+			".coverage",
+			"*.cover",
+			".coverage.*",
+
+			// Java/Kotlin/Scala
+			"target/**",
+			".gradle/**",
+			"*.class",
+			"*.jar",
+
+			// Go
+			"vendor/**",
+
+			// Rust
+			"target/**",
+
+			// Ruby
+			".bundle/**",
+			"vendor/bundle/**",
+
+			// PHP
+			"vendor/**",
+			".phpunit.cache/**",
+
+			// .NET
+			"bin/**",
+			"obj/**",
+			"packages/**",
+			".vs/**",
+			"*.dll",
+			"*.exe",
+
+			// Build outputs
+			"dist/**",
+			"build/**",
+			"out/**",
+			"_build/**",
+
+			// Testing
+			"coverage/**",
+			".nyc_output/**",
+			"test-results/**",
+			"jest-cache/**",
+
+			// Version control
+			".git/**",
+			".svn/**",
+			".hg/**",
+			".bzr/**",
+
+			// IDE
+			".idea/**",
+			".vscode/**",
+			"*.swp",
+			"*.swo",
+			"*~",
+			".project",
+			".classpath",
+			".settings/**",
+
+			// OS
+			".DS_Store",
+			"Thumbs.db",
+			"desktop.ini",
+
+			// Logs and temp
+			"*.log",
+			"logs/**",
+			"tmp/**",
+			"temp/**",
+			"*.tmp",
+			"*.temp",
+			"*.bak",
+			"*.backup",
+			"*.old",
+
+			// Package managers
+			"npm-debug.log*",
+			"yarn-debug.log*",
+			"yarn-error.log*",
+			"pnpm-debug.log*",
+			".pnpm-store/**",
+
+			// CI/CD
+			".terraform/**",
+			".serverless/**",
+			".github/workflows/**",
+			".gitlab/**",
+
+			// Documentation builds
+			"_site/**",
+			".docusaurus/**",
+			"site/**",
+
+			// Mobile
+			".expo/**",
+			".expo-shared/**",
+
+			// Certificates and secrets (safety)
+			"*.pem",
+			"*.key",
+			"*.cert",
+			"*.crt",
+			".env.local",
+			".env.*.local",
+		})
+	})
+	return defaultPatterns
+}
 
 // GraphBuilder builds code graphs from parsed files
 // ProgressConfig configures progress reporting behavior
@@ -21,12 +198,22 @@ type ProgressConfig struct {
 }
 
 type GraphBuilder struct {
-	parser           *parser.Manager
-	graph            *types.CodeGraph
-	cache            *cache.PersistentCache
-	progressCallback func(string)
-	progressConfig   ProgressConfig
-	excludePatterns  []string
+	parser             *parser.Manager
+	graph              *types.CodeGraph
+	cache              *cache.PersistentCache
+	progressCallback   func(string)
+	progressConfig     ProgressConfig
+	excludePatterns    []string
+	includePatterns    []string // Negation patterns (starting with !)
+	useDefaultExcludes bool
+
+	// Thread-safe pattern caching
+	patternMu      sync.RWMutex
+	cachedPatterns []string // Cached merged patterns to avoid repeated allocation
+	patternsDirty  bool     // Whether cached patterns need to be regenerated
+
+	// Error handling
+	logger *log.Logger // Optional logger for pattern errors
 }
 
 // NewGraphBuilder creates a new graph builder
@@ -41,10 +228,19 @@ func NewGraphBuilder() *GraphBuilder {
 			Metadata: &types.GraphMetadata{},
 		},
 		progressConfig: ProgressConfig{
-			Interval:       10,    // Default: update every 10 files
+			Interval:       DefaultProgressInterval,
 			ShowPercentage: false, // Default: don't show percentage (requires pre-counting)
 		},
+		useDefaultExcludes: true, // Use default exclude patterns by default
+		excludePatterns:    []string{},
+		includePatterns:    []string{},
+		patternsDirty:      true, // Force initial cache build
 	}
+}
+
+// SetLogger sets a logger for pattern error reporting
+func (gb *GraphBuilder) SetLogger(logger *log.Logger) {
+	gb.logger = logger
 }
 
 // SetCache sets the persistent cache for the graph builder
@@ -53,8 +249,36 @@ func (gb *GraphBuilder) SetCache(c *cache.PersistentCache) {
 }
 
 // SetExcludePatterns sets the exclude patterns for the graph builder
+// Patterns starting with ! are treated as include patterns (negations)
 func (gb *GraphBuilder) SetExcludePatterns(patterns []string) {
-	gb.excludePatterns = patterns
+	gb.patternMu.Lock()
+	defer gb.patternMu.Unlock()
+
+	gb.excludePatterns = []string{}
+	gb.includePatterns = []string{}
+
+	for _, pattern := range patterns {
+		if strings.HasPrefix(pattern, "!") {
+			// Remove the ! prefix and add to include patterns
+			trimmed, _ := strings.CutPrefix(pattern, "!")
+			gb.includePatterns = append(gb.includePatterns, trimmed)
+		} else {
+			gb.excludePatterns = append(gb.excludePatterns, pattern)
+		}
+	}
+
+	gb.patternsDirty = true // Mark patterns as dirty to force cache rebuild
+}
+
+// SetUseDefaultExcludes sets whether to use default exclude patterns
+func (gb *GraphBuilder) SetUseDefaultExcludes(use bool) {
+	gb.patternMu.Lock()
+	defer gb.patternMu.Unlock()
+
+	if gb.useDefaultExcludes != use {
+		gb.useDefaultExcludes = use
+		gb.patternsDirty = true // Mark patterns as dirty since defaults changed
+	}
 }
 
 // SetProgressCallback sets a callback function for progress updates
@@ -64,14 +288,14 @@ func (gb *GraphBuilder) SetProgressCallback(callback func(string)) {
 
 // SetProgressInterval sets how often progress updates are sent (every N files)
 func (gb *GraphBuilder) SetProgressInterval(interval int) {
-	if interval > 0 {
+	if interval >= MinProgressInterval {
 		gb.progressConfig.Interval = interval
 	}
 }
 
 // SetProgressConfig sets the complete progress configuration
 func (gb *GraphBuilder) SetProgressConfig(config ProgressConfig) {
-	if config.Interval > 0 {
+	if config.Interval >= MinProgressInterval {
 		gb.progressConfig = config
 	}
 }
@@ -339,65 +563,161 @@ func (gb *GraphBuilder) isSupportedFile(path string) bool {
 		".md",
 	}
 
-	for _, supported := range supportedExtensions {
-		if ext == supported {
-			return true
-		}
+	return slices.Contains(supportedExtensions, ext)
+}
+
+// getMergedPatterns returns the combined exclude patterns (defaults + user patterns)
+// with thread-safe caching and memory leak protection
+func (gb *GraphBuilder) getMergedPatterns() []string {
+	// Fast path: try read lock first
+	gb.patternMu.RLock()
+	if !gb.patternsDirty && gb.cachedPatterns != nil {
+		defer gb.patternMu.RUnlock()
+		return gb.cachedPatterns
 	}
-	return false
+	gb.patternMu.RUnlock()
+
+	// Slow path: need to rebuild cache
+	gb.patternMu.Lock()
+	defer gb.patternMu.Unlock()
+
+	// Double-check pattern (classic concurrent programming)
+	if !gb.patternsDirty && gb.cachedPatterns != nil {
+		return gb.cachedPatterns
+	}
+
+	// Check for memory leak prevention
+	defaultPatterns := getDefaultExcludePatterns()
+	totalPatterns := len(gb.excludePatterns)
+	if gb.useDefaultExcludes {
+		totalPatterns += len(defaultPatterns)
+	}
+
+	if totalPatterns > MaxCachedPatterns {
+		// Don't cache very large pattern sets to prevent memory leaks
+		return gb.buildPatternsUncached(defaultPatterns)
+	}
+
+	// Rebuild cache
+	if gb.useDefaultExcludes {
+		// Merge default and user patterns
+		gb.cachedPatterns = make([]string, 0, totalPatterns)
+		gb.cachedPatterns = append(gb.cachedPatterns, defaultPatterns...)
+		gb.cachedPatterns = append(gb.cachedPatterns, gb.excludePatterns...)
+	} else {
+		// Use only user patterns
+		gb.cachedPatterns = make([]string, len(gb.excludePatterns))
+		copy(gb.cachedPatterns, gb.excludePatterns)
+	}
+
+	gb.patternsDirty = false
+	return gb.cachedPatterns
+}
+
+// buildPatternsUncached builds patterns without caching for large pattern sets
+func (gb *GraphBuilder) buildPatternsUncached(defaultPatterns []string) []string {
+	if gb.useDefaultExcludes {
+		result := make([]string, 0, len(defaultPatterns)+len(gb.excludePatterns))
+		result = append(result, defaultPatterns...)
+		result = append(result, gb.excludePatterns...)
+		return result
+	}
+
+	// Return copy to avoid external modification
+	result := make([]string, len(gb.excludePatterns))
+	copy(result, gb.excludePatterns)
+	return result
 }
 
 // shouldSkipPath checks if a path should be skipped during analysis
 func (gb *GraphBuilder) shouldSkipPath(path string) bool {
-	// Default skip directories
-	skipDirs := []string{
-		"node_modules", ".git", ".codecontext", "dist", "build",
-		"coverage", ".nyc_output",
+	// First check if path is explicitly included (negation patterns)
+	if gb.matchesPattern(path, gb.includePatterns) {
+		return false // Explicitly included, don't skip
 	}
 
-	// Check default skip directories
-	for _, skipDir := range skipDirs {
-		// Check if the path contains the directory as a segment or if it's the exact directory name
-		if strings.Contains(path, "/"+skipDir+"/") || strings.HasSuffix(path, "/"+skipDir) || path == skipDir {
-			return true
+	// Check against all exclude patterns (cached to avoid repeated allocations)
+	return gb.matchesPattern(path, gb.getMergedPatterns())
+}
+
+// matchesPattern checks if a path matches any of the given patterns
+// Returns true if any pattern matches, false otherwise
+func (gb *GraphBuilder) matchesPattern(path string, patterns []string) bool {
+	for _, pattern := range patterns {
+		// Skip empty patterns (these are filtered during deduplication)
+		if pattern == "" {
+			continue
 		}
-	}
 
-	// Check exclude patterns from config
-	for _, pattern := range gb.excludePatterns {
-		// Use filepath.Match for glob pattern matching
-		matched, err := filepath.Match(pattern, path)
-		if err == nil && matched {
+		// Check full path match
+		if matched, err := gb.checkPatternMatch(pattern, path); err != nil {
+			gb.logPatternError(pattern, err)
+			continue
+		} else if matched {
 			return true
 		}
 
 		// Also check against just the filename for patterns like *.test.*
-		baseName := filepath.Base(path)
-		if baseName != path { // Only if path contains directories
-			matched, err = filepath.Match(pattern, baseName)
-			if err == nil && matched {
+		if gb.hasDirectorySeparator(path) {
+			baseName := filepath.Base(path)
+			if matched, err := gb.checkPatternMatch(pattern, baseName); err != nil {
+				gb.logPatternError(pattern, err)
+				continue
+			} else if matched {
 				return true
 			}
 		}
 
-		// Also check if the pattern matches any part of the path (for patterns like "node_modules/**")
-		// This handles patterns with ** which filepath.Match doesn't support natively
+		// Handle ** patterns which filepath.Match doesn't support natively
 		if strings.Contains(pattern, "**") {
-			// Convert ** to a simpler pattern for basic matching
-			simplePattern := strings.ReplaceAll(pattern, "/**", "")
-			simplePattern = strings.ReplaceAll(simplePattern, "**", "*")
-
-			// Check if any segment of the path matches
-			parts := strings.Split(path, string(filepath.Separator))
-			for i := range parts {
-				subPath := filepath.Join(parts[:i+1]...)
-				if matched, err := filepath.Match(simplePattern, subPath); err == nil && matched {
-					return true
-				}
+			if gb.matchesDoubleStarPattern(path, pattern) {
+				return true
 			}
 		}
 	}
 
+	return false
+}
+
+// checkPatternMatch performs a single pattern match with error handling
+func (gb *GraphBuilder) checkPatternMatch(pattern, path string) (bool, error) {
+	matched, err := filepath.Match(pattern, path)
+	return matched, err
+}
+
+// logPatternError logs pattern errors using the configured logger
+func (gb *GraphBuilder) logPatternError(pattern string, err error) {
+	if gb.logger != nil {
+		gb.logger.Printf("Invalid glob pattern %q: %v", pattern, err)
+	}
+	// Still send to progress callback for backward compatibility
+	if gb.progressCallback != nil {
+		gb.progressCallback(fmt.Sprintf("⚠️  Invalid pattern %q: %v", pattern, err))
+	}
+}
+
+// hasDirectorySeparator checks if path contains directory separators
+func (gb *GraphBuilder) hasDirectorySeparator(path string) bool {
+	return filepath.Base(path) != path
+}
+
+// matchesDoubleStarPattern handles patterns with ** wildcards
+func (gb *GraphBuilder) matchesDoubleStarPattern(path, pattern string) bool {
+	// Convert ** to a simpler pattern for basic matching
+	simplePattern := strings.ReplaceAll(pattern, "/**", "")
+	simplePattern = strings.ReplaceAll(simplePattern, "**", "*")
+
+	// Check if any segment of the path matches
+	parts := strings.Split(path, string(filepath.Separator))
+	for i := range parts {
+		subPath := filepath.Join(parts[:i+1]...)
+		if matched, err := gb.checkPatternMatch(simplePattern, subPath); err != nil {
+			gb.logPatternError(simplePattern, err)
+			continue
+		} else if matched {
+			return true
+		}
+	}
 	return false
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -165,25 +166,26 @@ func TestIsSupportedFile(t *testing.T) {
 
 func TestShouldSkipPath(t *testing.T) {
 	builder := NewGraphBuilder()
+	builder.SetUseDefaultExcludes(false) // Disable defaults for this test
 
 	tests := []struct {
 		path     string
 		expected bool
 	}{
 		{"src/index.ts", false},
-		{"path/node_modules/package/index.js", true}, // Contains /node_modules/
-		{"project/.git/config", true},                // Contains /.git/
-		{"app/dist/bundle.js", true},                 // Contains /dist/
-		{"app/coverage/report.html", true},           // Contains /coverage/
+		{"path/node_modules/package/index.js", false}, // No patterns set, should not skip
+		{"project/.git/config", false},                // No patterns set, should not skip
+		{"app/dist/bundle.js", false},                 // No patterns set, should not skip
+		{"app/coverage/report.html", false},           // No patterns set, should not skip
 		{"test/unit.spec.ts", false},
-		{"project/.codecontext/config.yaml", true}, // Contains /.codecontext/
-		{"node_modules", true},                     // Ends with /node_modules
-		{".git", true},                             // Ends with /.git
-		{"dist", true},                             // Ends with /dist
-		{"coverage", true},                         // Ends with /coverage
-		{".codecontext", true},                     // Ends with /.codecontext
-		{"something_node_modules", false},          // Doesn't match pattern
-		{"git_config", false},                      // Doesn't match pattern
+		{"project/.codecontext/config.yaml", false}, // No patterns set, should not skip
+		{"node_modules", false},                     // No patterns set, should not skip
+		{".git", false},                             // No patterns set, should not skip
+		{"dist", false},                             // No patterns set, should not skip
+		{"coverage", false},                         // No patterns set, should not skip
+		{".codecontext", false},                     // No patterns set, should not skip
+		{"something_node_modules", false},           // Doesn't match pattern
+		{"git_config", false},                       // Doesn't match pattern
 	}
 
 	for _, test := range tests {
@@ -197,6 +199,7 @@ func TestShouldSkipPath(t *testing.T) {
 
 func TestShouldSkipPathWithExcludePatterns(t *testing.T) {
 	builder := NewGraphBuilder()
+	builder.SetUseDefaultExcludes(false) // Disable defaults for predictable testing
 	builder.SetExcludePatterns([]string{
 		"node_modules/**",
 		"*.test.*",
@@ -230,6 +233,90 @@ func TestShouldSkipPathWithExcludePatterns(t *testing.T) {
 		{"deep/nested/dir/component.spec.tsx", true, "*.spec.* pattern should match in deep paths"},
 		{"src/components/Button.test.tsx", true, "*.test.* pattern should match TypeScript test files"},
 		{"tests/unit.spec.js", true, "*.spec.* pattern should match in tests directory"},
+	}
+
+	for _, test := range tests {
+		result := builder.shouldSkipPath(test.path)
+		if result != test.expected {
+			t.Errorf("shouldSkipPath(%q) = %v, expected %v (%s)",
+				test.path, result, test.expected, test.reason)
+		}
+	}
+}
+
+func TestDefaultExcludePatterns(t *testing.T) {
+	builder := NewGraphBuilder()
+	// Default is to use default excludes
+
+	tests := []struct {
+		path     string
+		expected bool
+		reason   string
+	}{
+		{"src/index.ts", false, "Normal source file should not be skipped"},
+		{"node_modules/package/index.js", true, "node_modules should be excluded by default"},
+		{".venv/lib/python3.9/site-packages/foo.py", true, ".venv should be excluded by default"},
+		{"target/debug/app", true, "target should be excluded by default"},
+		{"coverage/lcov.info", true, "coverage should be excluded by default"},
+		{".DS_Store", true, ".DS_Store should be excluded by default"},
+		{"app.log", true, "*.log should be excluded by default"},
+		{"dist/bundle.js", true, "dist should be excluded by default"},
+	}
+
+	for _, test := range tests {
+		result := builder.shouldSkipPath(test.path)
+		if result != test.expected {
+			t.Errorf("shouldSkipPath(%q) = %v, expected %v (%s)",
+				test.path, result, test.expected, test.reason)
+		}
+	}
+}
+
+func TestDisableDefaultExcludes(t *testing.T) {
+	builder := NewGraphBuilder()
+	builder.SetUseDefaultExcludes(false)
+
+	// Without any custom patterns, nothing should be excluded
+	tests := []struct {
+		path     string
+		expected bool
+		reason   string
+	}{
+		{"node_modules/package/index.js", false, "node_modules should NOT be excluded when defaults disabled"},
+		{".venv/lib/python3.9/site-packages/foo.py", false, ".venv should NOT be excluded when defaults disabled"},
+		{"coverage/lcov.info", false, "coverage should NOT be excluded when defaults disabled"},
+	}
+
+	for _, test := range tests {
+		result := builder.shouldSkipPath(test.path)
+		if result != test.expected {
+			t.Errorf("shouldSkipPath(%q) = %v, expected %v (%s)",
+				test.path, result, test.expected, test.reason)
+		}
+	}
+}
+
+func TestNegationPatterns(t *testing.T) {
+	builder := NewGraphBuilder()
+	builder.SetUseDefaultExcludes(false) // Disable defaults for clearer testing
+	builder.SetExcludePatterns([]string{
+		"vendor/**",
+		"*.test.*",
+		"!vendor/our-company/**", // Include our company's vendor code
+		"!important.test.js",     // Include this specific test file
+	})
+
+	tests := []struct {
+		path     string
+		expected bool
+		reason   string
+	}{
+		{"vendor/third-party/lib.go", true, "Third party vendor should be excluded"},
+		{"vendor/our-company/lib.go", false, "Our company vendor should be included via negation"},
+		{"vendor/our-company/internal/util.go", false, "Our company vendor subdirs should be included"},
+		{"app.test.js", true, "Regular test files should be excluded"},
+		{"important.test.js", false, "Specific test file should be included via negation"},
+		{"src/main.go", false, "Normal files should not be excluded"},
 	}
 
 	for _, test := range tests {
@@ -517,14 +604,7 @@ func TestProgressMessageFormats(t *testing.T) {
 
 			// Verify expected messages are present
 			for _, expected := range tt.expected {
-				found := false
-				for _, actual := range actualMessages {
-					if actual == expected {
-						found = true
-						break
-					}
-				}
-				if !found {
+				if !slices.Contains(actualMessages, expected) {
 					t.Errorf("Expected message %q not found in actual messages: %v",
 						expected, actualMessages)
 				}
@@ -657,4 +737,89 @@ func TestProgressConfig(t *testing.T) {
 	if !builder.progressConfig.ShowPercentage {
 		t.Error("Expected ShowPercentage to be true")
 	}
+}
+
+// Benchmark Tests
+
+func BenchmarkPatternMatching(b *testing.B) {
+	builder := NewGraphBuilder()
+	patterns := []string{
+		"*.js", "*.ts", "node_modules/**", ".git/**",
+		"dist/**", "coverage/**", "*.test.*", "*.spec.*",
+	}
+
+	testPaths := []string{
+		"src/main.js",
+		"node_modules/react/index.js",
+		"dist/bundle.js",
+		"test/main.test.js",
+		"coverage/lcov.info",
+		".git/config",
+		"docs/README.md",
+		"src/components/Button.tsx",
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		for _, path := range testPaths {
+			builder.matchesPattern(path, patterns)
+		}
+	}
+}
+
+func BenchmarkDefaultPatternMatching(b *testing.B) {
+	builder := NewGraphBuilder()
+	// Use actual default patterns
+	patterns := builder.getMergedPatterns()
+
+	testPath := "node_modules/react/lib/index.js"
+
+	b.ResetTimer()
+	for range b.N {
+		builder.matchesPattern(testPath, patterns)
+	}
+}
+
+func BenchmarkShouldSkipPath(b *testing.B) {
+	builder := NewGraphBuilder()
+	builder.SetExcludePatterns([]string{
+		"*.test.*",
+		"!important.test.js",
+	})
+
+	testPaths := []string{
+		"src/main.js",
+		"node_modules/react/index.js",
+		"test.test.js",
+		"important.test.js",
+		"dist/bundle.js",
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		for _, path := range testPaths {
+			builder.shouldSkipPath(path)
+		}
+	}
+}
+
+func BenchmarkPatternCaching(b *testing.B) {
+	builder := NewGraphBuilder()
+
+	b.Run("WithCaching", func(b *testing.B) {
+		for range b.N {
+			// This should use cached patterns after first call
+			patterns := builder.getMergedPatterns()
+			_ = patterns
+		}
+	})
+
+	b.Run("WithoutCaching", func(b *testing.B) {
+		for range b.N {
+			// Force regeneration each time (simulate old behavior)
+			builder.patternsDirty = true
+			patterns := builder.getMergedPatterns()
+			_ = patterns
+		}
+	})
 }

@@ -22,6 +22,7 @@ configuration files and directory structure.`,
 func init() {
 	rootCmd.AddCommand(initCmd)
 	initCmd.Flags().BoolP("force", "f", false, "force initialization even if config exists")
+	viper.BindPFlag("force", initCmd.Flags().Lookup("force"))
 }
 
 func initializeProject() error {
@@ -111,15 +112,33 @@ include_patterns:
   - "**/*.py"
   - "**/*.go"
 
+# Use built-in exclude patterns for common directories/files that are typically
+# not useful for code analysis (node_modules, .git, build outputs, etc.)
+# Set to false to disable all default excludes and use only your patterns
+use_default_excludes: true
+
+# Additional patterns to exclude (merged with defaults if use_default_excludes is true)
+# Use ! prefix to explicitly include files that would otherwise be excluded
 exclude_patterns:
-  - "node_modules/**"
-  - "dist/**"
-  - "build/**"
-  - "*.test.*"
-  - "*.spec.*"
-  - "__pycache__/**"
-  - "vendor/**"
-  - ".git/**"
+  # Additional excludes
+  - "docs/**"
+  - "*.min.js"
+  - "*.min.css"
+  
+  # Example: Include specific files that would normally be excluded
+  # - "!node_modules/my-local-package/**"
+  # - "!vendor/our-company/**"
+  # - "!.github/workflows/ci.yml"
+
+# Default exclude patterns (when use_default_excludes is true):
+# Build outputs: dist/**, build/**, out/**, target/**, bin/**, obj/**
+# Dependencies: node_modules/**, vendor/**, packages/**, bower_components/**
+# Python: __pycache__/**, *.py[cod], .venv/**, venv/**, env/**, .tox/**
+# Testing: coverage/**, .nyc_output/**, test-results/**, htmlcov/**
+# IDE/Tools: .idea/**, .vscode/**, *.swp, .DS_Store, Thumbs.db
+# VCS: .git/**, .svn/**, .hg/**
+# Temp: *.log, logs/**, tmp/**, temp/**, *.tmp, *.bak
+# Other: .cache/**, .next/**, .nuxt/**, .pytest_cache/**, .terraform/**
 `
 
 	// Write config file
@@ -132,6 +151,12 @@ exclude_patterns:
 	gitignoreFile := ".gitignore"
 
 	if _, err := os.Stat(gitignoreFile); err == nil {
+		// Read existing gitignore to check if it ends with newline
+		existingContent, err := os.ReadFile(gitignoreFile)
+		if err != nil {
+			return fmt.Errorf("failed to read .gitignore: %w", err)
+		}
+
 		// Append to existing gitignore
 		f, err := os.OpenFile(gitignoreFile, os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
@@ -139,7 +164,13 @@ exclude_patterns:
 		}
 		defer f.Close()
 
-		if _, err := f.WriteString(gitignoreEntry); err != nil {
+		// Ensure we start on a new line
+		entryToWrite := gitignoreEntry
+		if len(existingContent) > 0 && existingContent[len(existingContent)-1] != '\n' {
+			entryToWrite = "\n" + gitignoreEntry
+		}
+
+		if _, err := f.WriteString(entryToWrite); err != nil {
 			return fmt.Errorf("failed to write to .gitignore: %w", err)
 		}
 	} else {

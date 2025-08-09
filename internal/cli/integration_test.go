@@ -43,7 +43,7 @@ func SetupTestSuite(t *testing.T) *TestSuite {
 				"*.go", "*.js", "*.ts", "*.jsx", "*.tsx",
 			},
 			ExcludePatterns: []string{
-				"node_modules/**", ".git/**", "*.test.*",
+				"*.test.*",  // Additional pattern
 			},
 			MaxFileSize:    1024 * 1024, // 1MB
 			Concurrency:    4,
@@ -649,7 +649,7 @@ func TestCLI_BasicConfiguration(t *testing.T) {
 	assert.Equal(t, []string{suite.tempDir}, suite.config.SourcePaths) // Use tempdir, not "."
 	assert.Contains(t, suite.config.IncludePatterns, "*.go")
 	assert.Contains(t, suite.config.IncludePatterns, "*.js")
-	assert.Contains(t, suite.config.ExcludePatterns, "node_modules/**")
+	assert.Contains(t, suite.config.ExcludePatterns, "*.test.*") // This is what we set in SetupTestSuite
 	assert.Equal(t, 4, suite.config.Concurrency)
 	assert.True(t, suite.config.EnableCache)
 }
@@ -696,7 +696,7 @@ func BenchmarkCLI_GenerateSmallProject(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		err := suite.runGenerate()
 		if err != nil {
 			b.Fatal(err)
@@ -714,7 +714,7 @@ func BenchmarkCLI_ScanFiles(b *testing.B) {
 	suite.CreateTestFiles(&testing.T{})
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		files, err := suite.scanFiles()
 		if err != nil {
 			b.Fatal(err)

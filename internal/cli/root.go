@@ -72,6 +72,11 @@ func initConfig() {
 
 	viper.AutomaticEnv()
 
+	// Skip reading config file for init command to avoid hanging in large repos
+	if len(os.Args) > 1 && os.Args[1] == "init" {
+		return
+	}
+
 	if err := viper.ReadInConfig(); err == nil {
 		if viper.GetBool("verbose") {
 			fmt.Fprintf(os.Stderr, "Using config file: %s\n", viper.ConfigFileUsed())
