@@ -823,3 +823,274 @@ func BenchmarkPatternCaching(b *testing.B) {
 		}
 	})
 }
+
+// Path Normalization Tests
+
+func TestPathNormalization(t *testing.T) {
+	builder := NewGraphBuilder()
+	
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Basic normalization
+		{"basic_path", "src/main.go", "src/main.go"},
+		{"current_dir", "./main.go", "main.go"},
+		{"parent_dir", "../main.go", "../main.go"},
+		{"double_dots", "src/../main.go", "main.go"},
+		{"trailing_slash", "src/", "src"},
+		{"multiple_slashes", "src//main.go", "src/main.go"},
+		
+		// Complex cases
+		{"complex_traversal", "src/../lib/../main.go", "main.go"},
+		{"deep_traversal", "a/b/c/../../d/../e.go", "a/e.go"},
+		{"empty_path", "", "."},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := builder.normalizePath(test.input)
+			if result != test.expected {
+				t.Errorf("normalizePath(%q) = %q, expected %q", 
+					test.input, result, test.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeForPattern(t *testing.T) {
+	builder := NewGraphBuilder()
+	
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Unix-style paths (should remain unchanged)
+		{"unix_basic", "src/main.go", "src/main.go"},
+		{"unix_nested", "src/components/Button.tsx", "src/components/Button.tsx"},
+		
+		// Paths with backslashes (should convert to forward slashes)
+		{"mixed_separators", "src\\main.go", "src/main.go"},
+		{"windows_style", "src\\components\\Button.tsx", "src/components/Button.tsx"},
+		
+		// With normalization
+		{"dots_with_backslash", "src\\..\\main.go", "main.go"},
+		{"complex_mixed", "src\\..\\lib/..\\main.go", "main.go"},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := builder.normalizeForPattern(test.input)
+			if result != test.expected {
+				t.Errorf("normalizeForPattern(%q) = %q, expected %q", 
+					test.input, result, test.expected)
+			}
+		})
+	}
+}
+
+func TestValidateImportPath(t *testing.T) {
+	builder := NewGraphBuilder()
+	baseDir := "/home/user/project"
+	
+	tests := []struct {
+		name      string
+		importPath string
+		baseDir   string
+		expectErr bool
+		reason    string
+	}{
+		// Safe paths
+		{"relative_safe", "./lib/utils.js", baseDir, false, "relative path within project"},
+		{"nested_safe", "../components/Button.tsx", baseDir, false, "parent directory within project"},
+		{"no_traversal", "utils.js", baseDir, false, "no traversal sequences"},
+		
+		// Dangerous paths
+		{"escape_root", "../../../etc/passwd", baseDir, true, "escapes project directory"},
+		{"escape_hidden", "lib/../../../etc/passwd", baseDir, true, "hidden traversal escape"},
+		{"deep_escape", "../../../../bin/sh", baseDir, true, "deep directory traversal"},
+		
+		// Edge cases
+		{"just_parent", "..", baseDir, false, "single parent directory"},
+		{"two_parents", "../..", baseDir, false, "two parent directories (reasonable)"},
+		{"many_parents", "../../..", baseDir, true, "too many parent directories"},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := builder.validateImportPath(test.importPath, test.baseDir)
+			
+			if test.expectErr && err == nil {
+				t.Errorf("validateImportPath(%q, %q) expected error but got none (%s)", 
+					test.importPath, test.baseDir, test.reason)
+			} else if !test.expectErr && err != nil {
+				t.Errorf("validateImportPath(%q, %q) unexpected error: %v (%s)", 
+					test.importPath, test.baseDir, err, test.reason)
+			}
+		})
+	}
+}
+
+func TestCrossPlatformPatternMatching(t *testing.T) {
+	builder := NewGraphBuilder()
+	builder.SetUseDefaultExcludes(false)
+	builder.SetExcludePatterns([]string{
+		"node_modules/**",
+		"*.test.*",
+		"build/**",
+	})
+	
+	tests := []struct {
+		name     string
+		path     string
+		expected bool
+		reason   string
+	}{
+		// Unix-style paths
+		{"unix_node_modules", "node_modules/react/index.js", true, "should match node_modules pattern"},
+		{"unix_test_file", "src/main.test.js", true, "should match test file pattern"},
+		{"unix_build_dir", "build/output.js", true, "should match build directory pattern"},
+		{"unix_normal_file", "src/main.js", false, "normal file should not be excluded"},
+		
+		// Windows-style paths (backslashes should be handled)
+		{"windows_node_modules", "node_modules\\react\\index.js", true, "should match node_modules with backslashes"},
+		{"windows_test_file", "src\\main.test.js", true, "should match test file with backslashes"},
+		{"windows_build_dir", "build\\output.js", true, "should match build directory with backslashes"},
+		{"windows_normal_file", "src\\main.js", false, "normal Windows file should not be excluded"},
+		
+		// Mixed separators
+		{"mixed_separators", "node_modules/react\\index.js", true, "should handle mixed separators"},
+		{"mixed_test", "src\\components/Button.test.tsx", true, "should match mixed separator test file"},
+	}
+	
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := builder.shouldSkipPath(test.path)
+			if result != test.expected {
+				t.Errorf("shouldSkipPath(%q) = %v, expected %v (%s)",
+					test.path, result, test.expected, test.reason)
+			}
+		})
+	}
+}
+
+func TestPathNormalizationInProcessFile(t *testing.T) {
+	// Create a temporary directory with test files
+	tmpDir := t.TempDir()
+	
+	// Create test files with different path formats
+	testFile1 := filepath.Join(tmpDir, "main.go")
+	testFile2 := filepath.Join(tmpDir, "subdir", "utils.go")
+	
+	// Create subdirectory
+	err := os.MkdirAll(filepath.Dir(testFile2), 0755)
+	if err != nil {
+		t.Fatalf("Failed to create subdirectory: %v", err)
+	}
+	
+	// Write test content
+	content1 := `package main
+func main() {}
+`
+	content2 := `package subdir
+func Helper() string { return "test" }
+`
+	
+	err = os.WriteFile(testFile1, []byte(content1), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file 1: %v", err)
+	}
+	
+	err = os.WriteFile(testFile2, []byte(content2), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write test file 2: %v", err)
+	}
+	
+	// Test the analyzer with different path formats
+	builder := NewGraphBuilder()
+	graph, err := builder.AnalyzeDirectory(tmpDir)
+	if err != nil {
+		t.Fatalf("AnalyzeDirectory failed: %v", err)
+	}
+	
+	// Verify that all paths in the graph are normalized
+	for filePath := range graph.Files {
+		normalized := builder.normalizePath(filePath)
+		if filePath != normalized {
+			t.Errorf("File path %q is not normalized, should be %q", filePath, normalized)
+		}
+		
+		// Verify that the path doesn't contain redundant elements
+		if strings.Contains(filePath, "//") || strings.Contains(filePath, "/./") || 
+		   strings.Contains(filePath, "/../") {
+			t.Errorf("File path %q contains redundant elements", filePath)
+		}
+	}
+}
+
+// Benchmark tests for path normalization performance
+
+func BenchmarkPathNormalization(b *testing.B) {
+	builder := NewGraphBuilder()
+	testPaths := []string{
+		"src/main.go",
+		"src/../lib/utils.go",
+		"./components/Button.tsx",
+		"deep/nested/path/to/file.js",
+		"src//double//slash.go",
+	}
+	
+	b.ResetTimer()
+	for range b.N {
+		for _, path := range testPaths {
+			builder.normalizePath(path)
+		}
+	}
+}
+
+func BenchmarkNormalizeForPattern(b *testing.B) {
+	builder := NewGraphBuilder()
+	testPaths := []string{
+		"src\\main.go",
+		"src\\..\\lib\\utils.go", 
+		".\\components\\Button.tsx",
+		"deep\\nested\\path\\to\\file.js",
+		"mixed/separators\\file.go",
+	}
+	
+	b.ResetTimer()
+	for range b.N {
+		for _, path := range testPaths {
+			builder.normalizeForPattern(path)
+		}
+	}
+}
+
+func BenchmarkCrossPlatformPatternMatching(b *testing.B) {
+	builder := NewGraphBuilder()
+	builder.SetExcludePatterns([]string{
+		"node_modules/**",
+		"*.test.*",
+		"build/**",
+		"dist/**",
+		"coverage/**",
+	})
+	
+	testPaths := []string{
+		"src/main.js",
+		"node_modules\\react\\index.js",
+		"src/components\\Button.test.tsx",
+		"build/output.js",
+		"dist\\bundle.js",
+		"coverage/lcov.info",
+	}
+	
+	b.ResetTimer()
+	for range b.N {
+		for _, path := range testPaths {
+			builder.shouldSkipPath(path)
+		}
+	}
+}

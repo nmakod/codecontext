@@ -248,6 +248,82 @@ func (gb *GraphBuilder) SetCache(c *cache.PersistentCache) {
 	gb.cache = c
 }
 
+// Path normalization helpers for cross-platform compatibility and security
+
+// normalizePath ensures consistent path format across platforms
+func (gb *GraphBuilder) normalizePath(path string) string {
+	// Clean the path to remove redundant elements like "." and ".."
+	return filepath.Clean(path)
+}
+
+// normalizeForPattern converts path to forward slashes for consistent pattern matching
+// This is essential for cross-platform glob pattern matching
+func (gb *GraphBuilder) normalizeForPattern(path string) string {
+	// First normalize backslashes to forward slashes for cross-platform consistency
+	normalized := strings.ReplaceAll(path, "\\", "/")
+	// Then clean the path and convert to forward slashes
+	return filepath.ToSlash(filepath.Clean(normalized))
+}
+
+// validateImportPath ensures import paths don't escape the project directory
+// This prevents directory traversal attacks when resolving relative imports
+func (gb *GraphBuilder) validateImportPath(importPath, baseDir string) error {
+	cleaned := filepath.Clean(importPath)
+	
+	// Check for directory traversal attempts
+	if strings.Contains(cleaned, "..") {
+		// Resolve to absolute path and verify it's within project boundaries
+		// We need to find the project root, not just the current file's directory
+		abs := filepath.Join(baseDir, cleaned)
+		abs = filepath.Clean(abs)
+		
+		// Get absolute base directory
+		baseDirAbs, err := filepath.Abs(baseDir)
+		if err != nil {
+			baseDirAbs = filepath.Clean(baseDir)
+		}
+		
+		// Get absolute resolved path
+		resolvedAbs, err := filepath.Abs(abs)
+		if err != nil {
+			resolvedAbs = abs
+		}
+		
+		// For import paths, we should allow going up to sibling directories
+		// but not beyond reasonable project boundaries
+		_, err = filepath.Rel(baseDirAbs, resolvedAbs)
+		if err != nil {
+			return fmt.Errorf("cannot determine relative path for import: %s", importPath)
+		}
+		
+		// Count upward levels in the original import path
+		// Handle both forward and back slashes
+		normalizedPath := strings.ReplaceAll(cleaned, "\\", "/")
+		upwardLevels := strings.Count(normalizedPath, "../")
+		
+		// Also count standalone ".." at the end
+		if strings.HasSuffix(normalizedPath, "/..") || normalizedPath == ".." {
+			upwardLevels++
+		}
+		
+		// Allow reasonable traversal (max 2 levels up) but block obvious attacks
+		if upwardLevels > 2 {
+			return fmt.Errorf("import path escapes project directory: %s", importPath)
+		}
+		
+		// Additional check: if resolved path contains suspicious system paths, block it
+		if strings.Contains(resolvedAbs, "/etc/") || 
+		   strings.Contains(resolvedAbs, "/bin/") ||
+		   strings.Contains(resolvedAbs, "/sbin/") ||
+		   strings.HasSuffix(resolvedAbs, "/etc/passwd") ||
+		   strings.HasSuffix(resolvedAbs, "/bin/sh") {
+			return fmt.Errorf("import path escapes project directory: %s", importPath)
+		}
+	}
+	
+	return nil
+}
+
 // SetExcludePatterns sets the exclude patterns for the graph builder
 // Patterns starting with ! are treated as include patterns (negations)
 func (gb *GraphBuilder) SetExcludePatterns(patterns []string) {
@@ -320,6 +396,9 @@ func (gb *GraphBuilder) AnalyzeDirectory(targetDir string) (*types.CodeGraph, er
 			return err
 		}
 
+		// Normalize path immediately for consistent handling
+		path = gb.normalizePath(path)
+
 		// Skip directories and unsupported files
 		if info.IsDir() || !gb.isSupportedFile(path) {
 			return nil
@@ -331,6 +410,8 @@ func (gb *GraphBuilder) AnalyzeDirectory(targetDir string) (*types.CodeGraph, er
 		if err != nil {
 			relPath = path // fallback to absolute path
 		}
+		relPath = gb.normalizePath(relPath)
+		
 		if gb.shouldSkipPath(relPath) || gb.shouldSkipPath(path) {
 			return nil
 		}
@@ -393,6 +474,9 @@ func (gb *GraphBuilder) AnalyzeDirectory(targetDir string) (*types.CodeGraph, er
 
 // processFile processes a single file and extracts symbols
 func (gb *GraphBuilder) processFile(filePath string) error {
+	// Normalize path before any processing to ensure consistency
+	filePath = gb.normalizePath(filePath)
+	
 	// Detect language
 	classification, err := gb.parser.ClassifyFile(filePath)
 	if err != nil {
@@ -514,15 +598,27 @@ func (gb *GraphBuilder) buildBasicFileRelationships() {
 
 // resolveImportPath attempts to resolve an import path to an actual file
 func (gb *GraphBuilder) resolveImportPath(importPath, fromFile string) string {
+	// Normalize the fromFile path
+	fromFile = gb.normalizePath(fromFile)
+	
 	// Handle relative imports
 	if strings.HasPrefix(importPath, "./") || strings.HasPrefix(importPath, "../") {
 		dir := filepath.Dir(fromFile)
-		resolved := filepath.Join(dir, importPath)
+		
+		// Validate import path for security - prevent directory traversal
+		if err := gb.validateImportPath(importPath, dir); err != nil {
+			if gb.logger != nil {
+				gb.logger.Printf("Invalid import path: %v", err)
+			}
+			return ""
+		}
+		
+		resolved := gb.normalizePath(filepath.Join(dir, importPath))
 
 		// Try common extensions
 		extensions := []string{".ts", ".tsx", ".js", ".jsx"}
 		for _, ext := range extensions {
-			candidate := resolved + ext
+			candidate := gb.normalizePath(resolved + ext)
 			if _, exists := gb.graph.Files[candidate]; exists {
 				return candidate
 			}
@@ -530,7 +626,7 @@ func (gb *GraphBuilder) resolveImportPath(importPath, fromFile string) string {
 
 		// Try with index files
 		for _, ext := range extensions {
-			candidate := filepath.Join(resolved, "index"+ext)
+			candidate := gb.normalizePath(filepath.Join(resolved, "index"+ext))
 			if _, exists := gb.graph.Files[candidate]; exists {
 				return candidate
 			}
@@ -631,6 +727,9 @@ func (gb *GraphBuilder) buildPatternsUncached(defaultPatterns []string) []string
 
 // shouldSkipPath checks if a path should be skipped during analysis
 func (gb *GraphBuilder) shouldSkipPath(path string) bool {
+	// Normalize path for consistent comparison across platforms
+	path = gb.normalizePath(path)
+	
 	// First check if path is explicitly included (negation patterns)
 	if gb.matchesPattern(path, gb.includePatterns) {
 		return false // Explicitly included, don't skip
@@ -643,14 +742,23 @@ func (gb *GraphBuilder) shouldSkipPath(path string) bool {
 // matchesPattern checks if a path matches any of the given patterns
 // Returns true if any pattern matches, false otherwise
 func (gb *GraphBuilder) matchesPattern(path string, patterns []string) bool {
+	// Normalize path for consistent cross-platform matching
+	path = gb.normalizePath(path)
+	
+	// Use forward slashes for pattern matching (cross-platform consistency)
+	patternPath := gb.normalizeForPattern(path)
+	
 	for _, pattern := range patterns {
 		// Skip empty patterns (these are filtered during deduplication)
 		if pattern == "" {
 			continue
 		}
 
-		// Check full path match
-		if matched, err := gb.checkPatternMatch(pattern, path); err != nil {
+		// Normalize pattern for cross-platform compatibility
+		normalizedPattern := filepath.ToSlash(pattern)
+
+		// Check full path match using normalized paths
+		if matched, err := gb.checkPatternMatch(normalizedPattern, patternPath); err != nil {
 			gb.logPatternError(pattern, err)
 			continue
 		} else if matched {
@@ -659,8 +767,8 @@ func (gb *GraphBuilder) matchesPattern(path string, patterns []string) bool {
 
 		// Also check against just the filename for patterns like *.test.*
 		if gb.hasDirectorySeparator(path) {
-			baseName := filepath.Base(path)
-			if matched, err := gb.checkPatternMatch(pattern, baseName); err != nil {
+			baseName := filepath.Base(patternPath)
+			if matched, err := gb.checkPatternMatch(normalizedPattern, baseName); err != nil {
 				gb.logPatternError(pattern, err)
 				continue
 			} else if matched {
@@ -669,8 +777,8 @@ func (gb *GraphBuilder) matchesPattern(path string, patterns []string) bool {
 		}
 
 		// Handle ** patterns which filepath.Match doesn't support natively
-		if strings.Contains(pattern, "**") {
-			if gb.matchesDoubleStarPattern(path, pattern) {
+		if strings.Contains(normalizedPattern, "**") {
+			if gb.matchesDoubleStarPattern(patternPath, normalizedPattern) {
 				return true
 			}
 		}
@@ -697,8 +805,11 @@ func (gb *GraphBuilder) logPatternError(pattern string, err error) {
 }
 
 // hasDirectorySeparator checks if path contains directory separators
+// Works with both forward slashes and backslashes for cross-platform compatibility
 func (gb *GraphBuilder) hasDirectorySeparator(path string) bool {
-	return filepath.Base(path) != path
+	// Normalize path first to handle both / and \ separators
+	normalized := gb.normalizeForPattern(path)
+	return strings.Contains(normalized, "/")
 }
 
 // matchesDoubleStarPattern handles patterns with ** wildcards
@@ -708,9 +819,10 @@ func (gb *GraphBuilder) matchesDoubleStarPattern(path, pattern string) bool {
 	simplePattern = strings.ReplaceAll(simplePattern, "**", "*")
 
 	// Check if any segment of the path matches
-	parts := strings.Split(path, string(filepath.Separator))
+	// Use forward slash for consistent splitting (path is already normalized)
+	parts := strings.Split(path, "/")
 	for i := range parts {
-		subPath := filepath.Join(parts[:i+1]...)
+		subPath := strings.Join(parts[:i+1], "/")
 		if matched, err := gb.checkPatternMatch(simplePattern, subPath); err != nil {
 			gb.logPatternError(simplePattern, err)
 			continue
