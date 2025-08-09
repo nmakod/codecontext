@@ -5,6 +5,15 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0](https://github.com/nmakod/codecontext/compare/v2.7.3...v2.8.0) (2025-08-09)
+
+
+### Features
+
+* implement advanced performance optimizations and memory management ([ed0b253](https://github.com/nmakod/codecontext/commit/ed0b253d2f46d4abda686d9ed6994d5a357a4ce7))
+* implement comprehensive path normalization and cross-platform support ([67be2a5](https://github.com/nmakod/codecontext/commit/67be2a53282544a936f2ded16bf9cba087f178cc))
+* implement comprehensive thread safety and performance optimizations ([c99ffc2](https://github.com/nmakod/codecontext/commit/c99ffc29080b346f8bd992073d182817f060ceec))
+
 ## [2.7.3](https://github.com/nmakod/codecontext/compare/v2.7.2...v2.7.3) (2025-08-06)
 
 
