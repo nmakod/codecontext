@@ -18,7 +18,7 @@ jobs:
           
       # If release was created, update VERSION file
       - if: ${{ steps.release.outputs.release_created }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         
       - if: ${{ steps.release.outputs.release_created }}
         name: Update VERSION file
