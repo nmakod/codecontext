@@ -5,6 +5,36 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0](https://github.com/nmakod/codecontext/compare/v2.8.0...v2.9.0) (2025-08-14)
+
+
+### Features
+
+* add automated versioned releases with changelog integration ([6c2a8da](https://github.com/nmakod/codecontext/commit/6c2a8dac0f2d883c8069027636959202ba65dc46))
+* add manifest.json for MCP desktop extension submission ([fadac3d](https://github.com/nmakod/codecontext/commit/fadac3d6d1fcab46e0b6505a2fb92d5b5258b53b))
+* implement advanced performance optimizations and memory management ([ed0b253](https://github.com/nmakod/codecontext/commit/ed0b253d2f46d4abda686d9ed6994d5a357a4ce7))
+* implement comprehensive path normalization and cross-platform support ([67be2a5](https://github.com/nmakod/codecontext/commit/67be2a53282544a936f2ded16bf9cba087f178cc))
+* implement comprehensive thread safety and performance optimizations ([c99ffc2](https://github.com/nmakod/codecontext/commit/c99ffc29080b346f8bd992073d182817f060ceec))
+* implement dynamic target directory support for multi-project analysis ([62d1cd4](https://github.com/nmakod/codecontext/commit/62d1cd495a44440e5829a69a864126d7d6a1a673))
+* implement Phase 2 CI/CD architecture with release-please orchestration ([f4ee612](https://github.com/nmakod/codecontext/commit/f4ee6128017c78442799d3afc0d2b25db7f9d232))
+
+
+### Bug Fixes
+
+* add -buildvcs=false flag to resolve CI build failures ([d00ac9e](https://github.com/nmakod/codecontext/commit/d00ac9e2e54364c5eeca2911d6461904b45f5935))
+* add issues permission to resolve release-please label creation error ([3d87e4b](https://github.com/nmakod/codecontext/commit/3d87e4b8cebe6247eed2041eb2a5e0078fad7040))
+* adjust performance test thresholds for CI reliability ([5b2b973](https://github.com/nmakod/codecontext/commit/5b2b9732bda6ea711efd67514865cd126955ca15))
+* exclude_patterns from config.yaml now properly excludes files ([123f67e](https://github.com/nmakod/codecontext/commit/123f67e8c5e74c09bbe0dd0037778e1a0a182c62))
+* prevent duplicate workflow runs by making release-please manual only ([c860767](https://github.com/nmakod/codecontext/commit/c8607678d193383ce2c8a5d5445f599ed6066feb))
+* redirect file watcher logs to stderr to prevent MCP protocol corruption ([18f57be](https://github.com/nmakod/codecontext/commit/18f57bef36b82ba22efa3b13f60eb550c0201b1c))
+* resolve GitHub Actions workflow failures ([f2f5e64](https://github.com/nmakod/codecontext/commit/f2f5e6443c41015180fc4ccbc798faf95cd06c41))
+* resolve test assertion failures in MCP dynamic targeting ([b1a5eae](https://github.com/nmakod/codecontext/commit/b1a5eae978230bf7827cf27eb5cb70e7998aae0e))
+* resolve test isolation issues for CI reliability ([5bd804b](https://github.com/nmakod/codecontext/commit/5bd804bcef77fc4e44f6154accd1a969d7243898))
+* resolve test isolation issues for CI reliability ([dfffd8c](https://github.com/nmakod/codecontext/commit/dfffd8c5869fdee3640324ac064bae9712567c41))
+* resolve thread safety issues in progress tracking and compact controller ([255417e](https://github.com/nmakod/codecontext/commit/255417ea5fa7852acf47a7431777bd177db661f3))
+* update mapstructure to v2.3.0 to resolve vulnerability ([1124330](https://github.com/nmakod/codecontext/commit/11243300e613f4bd99f5daa462b2203d1081a6ea))
+* upgrade fsnotify from v1.8.0 to v1.9.0 ([88e651c](https://github.com/nmakod/codecontext/commit/88e651c488e5962e453555c403c2ba4552e109df))
+
 ## [2.8.0](https://github.com/nmakod/codecontext/compare/v2.7.3...v2.8.0) (2025-08-09)
 
 
