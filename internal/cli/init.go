@@ -74,6 +74,9 @@ languages:
   go:
     extensions: [".go"]
     parser: "tree-sitter-go"
+  dart:
+    extensions: [".dart"]
+    parser: "tree-sitter-dart"
 
 # Compact Profiles
 compact_profiles:
@@ -111,6 +114,7 @@ include_patterns:
   - "**/*.jsx"
   - "**/*.py"
   - "**/*.go"
+  - "**/*.dart"
 
 # Use built-in exclude patterns for common directories/files that are typically
 # not useful for code analysis (node_modules, .git, build outputs, etc.)
@@ -125,6 +129,13 @@ exclude_patterns:
   - "*.min.js"
   - "*.min.css"
   
+  # Dart/Flutter excludes
+  - ".dart_tool/**"
+  - "build/**"
+  - "*.g.dart"
+  - "*.freezed.dart"
+  - "*.mocks.dart"
+  
   # Example: Include specific files that would normally be excluded
   # - "!node_modules/my-local-package/**"
   # - "!vendor/our-company/**"
@@ -134,6 +145,7 @@ exclude_patterns:
 # Build outputs: dist/**, build/**, out/**, target/**, bin/**, obj/**
 # Dependencies: node_modules/**, vendor/**, packages/**, bower_components/**
 # Python: __pycache__/**, *.py[cod], .venv/**, venv/**, env/**, .tox/**
+# Dart/Flutter: .dart_tool/**, build/**, *.g.dart, *.freezed.dart
 # Testing: coverage/**, .nyc_output/**, test-results/**, htmlcov/**
 # IDE/Tools: .idea/**, .vscode/**, *.swp, .DS_Store, Thumbs.db
 # VCS: .git/**, .svn/**, .hg/**

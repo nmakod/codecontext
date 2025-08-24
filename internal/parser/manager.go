@@ -98,6 +98,12 @@ func (m *Manager) initLanguages() {
 	rustParser.SetLanguage(rustLang)
 	m.parsers["rust"] = rustParser
 
+	// Dart grammar - using regex-based approach for now
+	// Will be replaced with tree-sitter bindings when available
+	m.languages["dart"] = nil // No tree-sitter language for now
+	basicDartParser := sitter.NewParser()
+	m.parsers["dart"] = basicDartParser
+
 	// C# grammar - temporarily disabled due to type compatibility issues
 	// TODO: Fix type compatibility between official and community bindings
 	// csharpLang := csharp.GetLanguage()
@@ -321,6 +327,13 @@ func (m *Manager) detectLanguage(filePath string) *types.Language {
 			Parser:     "tree-sitter-rust",
 			Enabled:    true,
 		}
+	case ".dart":
+		return &types.Language{
+			Name:       "dart",
+			Extensions: []string{".dart"},
+			Parser:     "tree-sitter-dart",
+			Enabled:    true,
+		}
 	case ".vue":
 		return &types.Language{
 			Name:       "vue",
@@ -355,6 +368,15 @@ func (m *Manager) detectLanguage(filePath string) *types.Language {
 }
 
 func (m *Manager) parseContent(content string, language types.Language, filePath ...string) (*types.AST, error) {
+	// Handle Dart specially with our custom parser
+	if language.Name == "dart" {
+		filePathStr := ""
+		if len(filePath) > 0 {
+			filePathStr = filePath[0]
+		}
+		return m.parseDartContent(content, filePathStr)
+	}
+
 	m.mu.RLock()
 	parser, exists := m.parsers[language.Name]
 	treeSitterLang := m.languages[language.Name]
@@ -507,6 +529,8 @@ func (m *Manager) nodeToSymbolWithContent(node *types.ASTNode, filePath, languag
 
 	// Language-specific symbol extraction using real Tree-sitter node types
 	switch language {
+	case "dart":
+		return m.nodeToSymbolDart(node, filePath, language)
 	case "python":
 		return m.nodeToSymbolPython(node, filePath, language)
 	case "java":
@@ -988,6 +1012,8 @@ func (m *Manager) getExtensionsForLanguage(name string) []string {
 		return []string{".ts", ".tsx"}
 	case "javascript":
 		return []string{".js", ".jsx"}
+	case "dart":
+		return []string{".dart"}
 	default:
 		return []string{}
 	}
@@ -1024,6 +1050,11 @@ func (m *Manager) extractSymbolName(node *types.ASTNode) string {
 
 		// For some nodes, the name might be nested deeper
 		if child.Type == "property_identifier" || child.Type == "name" {
+			return strings.TrimSpace(child.Value)
+		}
+		
+		// For part directives, the filename is stored in string_literal children
+		if child.Type == "string_literal" {
 			return strings.TrimSpace(child.Value)
 		}
 	}
