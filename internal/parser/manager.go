@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,29 +23,36 @@ import (
 type Manager struct {
 	parsers           map[string]*sitter.Parser
 	languages         map[string]*sitter.Language
-	cache             *ASTCache
+	cache             Cache
 	frameworkDetector *FrameworkDetector
 	mu                sync.RWMutex
+	
+	// Injected dependencies
+	logger       Logger
+	panicHandler *PanicHandler
+	config       *ParserConfig
 }
 
-// NewManager creates a new parser manager
+// NewManager creates a new parser manager using default configuration
+// Deprecated: Use NewManagerBuilder() for better control over dependencies
 func NewManager() *Manager {
-	return NewManagerWithRoot(".")
+	manager, err := NewManagerBuilder().Build()
+	if err != nil {
+		// This should not happen with default configuration
+		panic("failed to create manager with default configuration: " + err.Error())
+	}
+	return manager
 }
 
 // NewManagerWithRoot creates a new parser manager with a specified project root
+// Deprecated: Use NewManagerBuilder().WithProjectRoot(root).Build() for better control
 func NewManagerWithRoot(projectRoot string) *Manager {
-	m := &Manager{
-		parsers:           make(map[string]*sitter.Parser),
-		languages:         make(map[string]*sitter.Language),
-		cache:             NewASTCache(),
-		frameworkDetector: NewFrameworkDetector(projectRoot),
+	manager, err := NewManagerBuilder().WithProjectRoot(projectRoot).Build()
+	if err != nil {
+		// This should not happen with default configuration
+		panic("failed to create manager with default configuration: " + err.Error())
 	}
-
-	// Initialize supported languages
-	m.initLanguages()
-
-	return m
+	return manager
 }
 
 // initLanguages initializes the supported languages with real Tree-sitter grammars
@@ -97,6 +105,12 @@ func (m *Manager) initLanguages() {
 	rustParser := sitter.NewParser()
 	rustParser.SetLanguage(rustLang)
 	m.parsers["rust"] = rustParser
+
+	// Dart grammar - using regex-based approach for now
+	// Will be replaced with tree-sitter bindings when available
+	m.languages["dart"] = nil // No tree-sitter language for now
+	basicDartParser := sitter.NewParser()
+	m.parsers["dart"] = basicDartParser
 
 	// C# grammar - temporarily disabled due to type compatibility issues
 	// TODO: Fix type compatibility between official and community bindings
@@ -188,21 +202,52 @@ func (m *Manager) ExtractImports(ast *types.AST) ([]*types.Import, error) {
 	return imports, nil
 }
 
+// Parse parses source code content and returns an AST
+func (m *Manager) Parse(content, filePath string) (*types.AST, error) {
+	return m.ParseWithContext(context.Background(), content, filePath)
+}
+
+// ParseWithContext parses source code content with context for better error reporting
+func (m *Manager) ParseWithContext(ctx context.Context, content, filePath string) (*types.AST, error) {
+	// Add context information for better error reporting
+	ctx = WithFilePath(ctx, filePath)
+	
+	result, err := m.panicHandler.WithOperationReturn(ctx, "parse_content", func() (any, error) {
+		// Detect language from file path
+		lang := m.detectLanguage(filePath)
+		if lang == nil {
+			return nil, NewParseError("detect_language", filePath, "", ErrUnsupportedLanguage)
+		}
+		
+		// Add language to context
+		ctx = WithLanguage(ctx, lang.Name)
+		
+		return m.parseContentWithContext(ctx, content, *lang, filePath)
+	})
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	if ast, ok := result.(*types.AST); ok {
+		return ast, nil
+	}
+	
+	return nil, NewParseError("parse_content", filePath, "", fmt.Errorf("internal error: unexpected return type"))
+}
+
 // GetSupportedLanguages returns the list of supported languages
-func (m *Manager) GetSupportedLanguages() []types.Language {
+func (m *Manager) GetSupportedLanguages() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var languages []types.Language
+	var languages []string
 	for name, _ := range m.languages {
-		lang := types.Language{
-			Name:       name,
-			Extensions: m.getExtensionsForLanguage(name),
-			Parser:     fmt.Sprintf("tree-sitter-%s", name),
-			Enabled:    true,
-		}
-		languages = append(languages, lang)
+		languages = append(languages, name)
 	}
+	
+	// Add Dart support
+	languages = append(languages, "dart")
 
 	return languages
 }
@@ -255,7 +300,7 @@ func (m *Manager) ClassifyFile(filePath string) (*types.FileClassification, erro
 }
 
 // GetASTCache returns the AST cache
-func (m *Manager) GetASTCache() types.ASTCache {
+func (m *Manager) GetASTCache() Cache {
 	return m.cache
 }
 
@@ -321,6 +366,13 @@ func (m *Manager) detectLanguage(filePath string) *types.Language {
 			Parser:     "tree-sitter-rust",
 			Enabled:    true,
 		}
+	case ".dart":
+		return &types.Language{
+			Name:       "dart",
+			Extensions: []string{".dart"},
+			Parser:     "tree-sitter-dart",
+			Enabled:    true,
+		}
 	case ".vue":
 		return &types.Language{
 			Name:       "vue",
@@ -355,6 +407,19 @@ func (m *Manager) detectLanguage(filePath string) *types.Language {
 }
 
 func (m *Manager) parseContent(content string, language types.Language, filePath ...string) (*types.AST, error) {
+	return m.parseContentWithContext(context.Background(), content, language, filePath...)
+}
+
+func (m *Manager) parseContentWithContext(ctx context.Context, content string, language types.Language, filePath ...string) (*types.AST, error) {
+	// Handle Dart specially with our custom parser
+	if language.Name == "dart" {
+		filePathStr := ""
+		if len(filePath) > 0 {
+			filePathStr = filePath[0]
+		}
+		return m.parseDartContentWithContext(ctx, content, filePathStr)
+	}
+
 	m.mu.RLock()
 	parser, exists := m.parsers[language.Name]
 	treeSitterLang := m.languages[language.Name]
@@ -507,6 +572,8 @@ func (m *Manager) nodeToSymbolWithContent(node *types.ASTNode, filePath, languag
 
 	// Language-specific symbol extraction using real Tree-sitter node types
 	switch language {
+	case "dart":
+		return m.nodeToSymbolDart(node, filePath, language)
 	case "python":
 		return m.nodeToSymbolPython(node, filePath, language)
 	case "java":
@@ -988,6 +1055,8 @@ func (m *Manager) getExtensionsForLanguage(name string) []string {
 		return []string{".ts", ".tsx"}
 	case "javascript":
 		return []string{".js", ".jsx"}
+	case "dart":
+		return []string{".dart"}
 	default:
 		return []string{}
 	}
@@ -1024,6 +1093,11 @@ func (m *Manager) extractSymbolName(node *types.ASTNode) string {
 
 		// For some nodes, the name might be nested deeper
 		if child.Type == "property_identifier" || child.Type == "name" {
+			return strings.TrimSpace(child.Value)
+		}
+		
+		// For part directives, the filename is stored in string_literal children
+		if child.Type == "string_literal" {
 			return strings.TrimSpace(child.Value)
 		}
 	}
@@ -1624,4 +1698,119 @@ func (m *Manager) findParentWithType(node *types.ASTNode, targetType string) *ty
 	// This is a simplified implementation - in a real scenario, you'd need to maintain parent references
 	// For now, we'll return nil as this would require AST traversal changes
 	return nil
+}
+
+// Close performs cleanup when shutting down the parser manager
+func (m *Manager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	// Clear cache
+	if m.cache != nil {
+		if err := m.cache.Clear(); err != nil {
+			return fmt.Errorf("failed to clear cache: %w", err)
+		}
+	}
+	
+	// Close all parsers
+	for lang, parser := range m.parsers {
+		if parser != nil {
+			// Tree-sitter parsers don't have a Close method, but we can clean up references
+			delete(m.parsers, lang)
+		}
+	}
+	
+	// Clear languages map
+	for lang := range m.languages {
+		delete(m.languages, lang)
+	}
+	
+	return nil
+}
+
+// GetParser returns a parser for the specified language
+func (m *Manager) GetParser(language string) (Parser, error) {
+	// For now, return self as all parsing goes through Manager
+	// In a more sophisticated implementation, we might return language-specific parsers
+	if m.detectLanguage(fmt.Sprintf("test.%s", getExtensionForLanguage(language))) != nil {
+		return m, nil
+	}
+	return nil, fmt.Errorf("unsupported language: %s", language)
+}
+
+// RegisterParser registers a new parser for a language
+func (m *Manager) RegisterParser(language string, parser Parser) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	// For now, we don't support external parser registration as we use tree-sitter directly
+	return fmt.Errorf("external parser registration not supported for language: %s", language)
+}
+
+// SetCache configures the cache implementation
+func (m *Manager) SetCache(cache Cache) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	if astCache, ok := cache.(*ASTCache); ok {
+		m.cache = astCache
+	}
+}
+
+// SetLogger configures the logger implementation  
+func (m *Manager) SetLogger(logger Logger) {
+	// For now, we don't have structured logging implemented
+	// This would be implemented when we add proper logging
+}
+
+// SetMetrics configures the metrics implementation
+func (m *Manager) SetMetrics(metrics Metrics) {
+	// For now, we don't have metrics implemented
+	// This would be implemented when we add proper metrics collection
+}
+
+// SetConfig updates the parser configuration
+func (m *Manager) SetConfig(config *ParserConfig) error {
+	if config == nil {
+		return fmt.Errorf("config cannot be nil")
+	}
+	
+	if err := config.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+	
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	// Apply cache configuration
+	if m.cache != nil {
+		m.cache.SetMaxSize(config.Cache.MaxSize)
+		m.cache.SetTTL(config.Cache.TTL)
+	}
+	
+	return nil
+}
+
+
+
+// getExtensionForLanguage returns the primary file extension for a language
+func getExtensionForLanguage(language string) string {
+	switch language {
+	case "typescript":
+		return "ts"
+	case "javascript":
+		return "js"
+	case "python":
+		return "py"
+	case "java":
+		return "java"
+	case "go":
+		return "go"
+	case "rust":
+		return "rs"
+	case "dart":
+		return "dart"
+	default:
+		return language
+	}
 }
