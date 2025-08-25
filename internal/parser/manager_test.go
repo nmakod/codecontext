@@ -37,11 +37,8 @@ func TestGetSupportedLanguages(t *testing.T) {
 	// Check if TypeScript is supported
 	var tsFound bool
 	for _, lang := range languages {
-		if lang.Name == "typescript" {
+		if lang == "typescript" {
 			tsFound = true
-			if len(lang.Extensions) == 0 {
-				t.Error("TypeScript language has no extensions")
-			}
 			break
 		}
 	}

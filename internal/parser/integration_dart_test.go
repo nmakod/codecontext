@@ -102,19 +102,16 @@ func TestDartGetSupportedLanguages(t *testing.T) {
 	languages := manager.GetSupportedLanguages()
 	
 	// Find Dart in supported languages
-	var dartLang *types.Language
-	for i, lang := range languages {
-		if lang.Name == "dart" {
-			dartLang = &languages[i]
+	var foundDart bool
+	for _, lang := range languages {
+		if lang == "dart" {
+			foundDart = true
 			break
 		}
 	}
 	
-	require.NotNil(t, dartLang, "Dart should be in supported languages")
-	assert.Equal(t, "dart", dartLang.Name)
-	assert.Contains(t, dartLang.Extensions, ".dart")
-	assert.Equal(t, "tree-sitter-dart", dartLang.Parser)
-	assert.True(t, dartLang.Enabled)
+	require.True(t, foundDart, "Dart should be in supported languages")
+	assert.Contains(t, languages, "dart")
 }
 
 func TestDartFileClassification(t *testing.T) {

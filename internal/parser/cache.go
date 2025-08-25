@@ -31,9 +31,6 @@ func NewASTCache() *ASTCache {
 
 // Get retrieves an AST from the cache
 func (c *ASTCache) Get(fileId string, version ...string) (*types.VersionedAST, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	var key string
 	if len(version) > 0 {
 		key = fmt.Sprintf("%s:%s", fileId, version[0])
@@ -41,17 +38,26 @@ func (c *ASTCache) Get(fileId string, version ...string) (*types.VersionedAST, e
 		key = fileId
 	}
 
-	// Check if entry exists and is not expired
-	if ast, exists := c.astCache[key]; exists {
-		if timestamp, ok := c.timestamps[key]; ok {
-			if time.Since(timestamp) < c.ttl {
-				return ast, nil
-			} else {
-				// Entry expired, remove it
-				delete(c.astCache, key)
-				delete(c.timestamps, key)
-			}
+	// First, check under read lock
+	c.mu.RLock()
+	ast, exists := c.astCache[key]
+	timestamp, timestampExists := c.timestamps[key]
+	c.mu.RUnlock()
+
+	// If entry exists and is valid, return it
+	if exists && timestampExists && time.Since(timestamp) < c.ttl {
+		return ast, nil
+	}
+
+	// If entry exists but is expired, clean it up under write lock
+	if exists && timestampExists {
+		c.mu.Lock()
+		// Double-check after acquiring write lock (entry might have been cleaned by another goroutine)
+		if t, ok := c.timestamps[key]; ok && time.Since(t) >= c.ttl {
+			delete(c.astCache, key)
+			delete(c.timestamps, key)
 		}
+		c.mu.Unlock()
 	}
 
 	return nil, fmt.Errorf("AST not found in cache: %s", key)
@@ -135,11 +141,11 @@ func (c *ASTCache) Size() int {
 }
 
 // Stats returns cache statistics
-func (c *ASTCache) Stats() map[string]interface{} {
+func (c *ASTCache) Stats() map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"ast_entries":  len(c.astCache),
 		"diff_entries": len(c.diffCache),
 		"max_size":     c.maxSize,

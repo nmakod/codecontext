@@ -26,7 +26,7 @@ func NewFlutterDetector() *FlutterDetector {
 			// Widget patterns
 			"stateless_widget":   regexp.MustCompile(`class\s+\w+\s+extends\s+StatelessWidget`),
 			"stateful_widget":    regexp.MustCompile(`class\s+\w+\s+extends\s+StatefulWidget`),
-			"inherited_widget":   regexp.MustCompile(`class\s+\w+\s+extends\s+InheritedWidget`),
+			"inherited_widget":   regexp.MustCompile(`class\s+\w+\s+extends\s+(InheritedWidget|InheritedNotifier)`),
 			"consumer_widget":    regexp.MustCompile(`class\s+\w+\s+extends\s+ConsumerWidget`),
 			"hook_widget":        regexp.MustCompile(`class\s+\w+\s+extends\s+HookWidget`),
 			"state_class":        regexp.MustCompile(`class\s+\w+\s+extends\s+State<`),
@@ -67,14 +67,28 @@ func NewFlutterDetector() *FlutterDetector {
 			"provider":           regexp.MustCompile(`import\s+['"]package:provider/`),
 			"change_notifier":    regexp.MustCompile(`extends\s+ChangeNotifier`),
 			"consumer":           regexp.MustCompile(`Consumer<`),
+			"consumer2":          regexp.MustCompile(`Consumer2<`),
+			"consumer3":          regexp.MustCompile(`Consumer3<`),
+			"selector":           regexp.MustCompile(`Selector<`),
 			"provider_widget":    regexp.MustCompile(`Provider<`),
+			"multi_provider":     regexp.MustCompile(`MultiProvider\s*\(`),
+			"change_notifier_provider": regexp.MustCompile(`ChangeNotifierProvider<`),
+			"proxy_provider":     regexp.MustCompile(`ProxyProvider`),
 			
 			// Riverpod
 			"riverpod":           regexp.MustCompile(`import\s+['"]package:flutter_riverpod/`),
 			"state_provider":     regexp.MustCompile(`StateProvider<`),
 			"future_provider":    regexp.MustCompile(`FutureProvider<`),
 			"stream_provider":    regexp.MustCompile(`StreamProvider<`),
+			"state_notifier_provider": regexp.MustCompile(`StateNotifierProvider<`),
+			"notifier_provider":  regexp.MustCompile(`NotifierProvider<`),
 			"consumer_widget":    regexp.MustCompile(`ConsumerWidget`),
+			"consumer_stateful":  regexp.MustCompile(`ConsumerStatefulWidget`),
+			"state_notifier":     regexp.MustCompile(`extends\s+StateNotifier<`),
+			"async_notifier":     regexp.MustCompile(`extends\s+AsyncNotifier<`),
+			"family_provider":    regexp.MustCompile(`\.family`),
+			"auto_dispose":       regexp.MustCompile(`\.autoDispose`),
+			"riverpod_ref":       regexp.MustCompile(`WidgetRef\s+ref`),
 			
 			// BLoC
 			"bloc":               regexp.MustCompile(`import\s+['"]package:flutter_bloc/`),
@@ -82,11 +96,41 @@ func NewFlutterDetector() *FlutterDetector {
 			"cubit_class":        regexp.MustCompile(`extends\s+Cubit<`),
 			"bloc_builder":       regexp.MustCompile(`BlocBuilder<`),
 			"bloc_consumer":      regexp.MustCompile(`BlocConsumer<`),
+			"bloc_listener":      regexp.MustCompile(`BlocListener<`),
+			"bloc_provider":      regexp.MustCompile(`BlocProvider<`),
+			"multi_bloc_provider": regexp.MustCompile(`MultiBlocProvider\s*\(`),
+			"repository_provider": regexp.MustCompile(`RepositoryProvider<`),
+			"bloc_event":         regexp.MustCompile(`extends\s+\w*Event`),
+			"bloc_state":         regexp.MustCompile(`extends\s+\w*State`),
 			
 			// GetX
 			"getx":               regexp.MustCompile(`import\s+['"]package:get/`),
 			"getx_controller":    regexp.MustCompile(`extends\s+GetxController`),
+			"getx_service":       regexp.MustCompile(`extends\s+GetxService`),
 			"obx":                regexp.MustCompile(`Obx\s*\(`),
+			"getx_builder":       regexp.MustCompile(`GetBuilder<`),
+			"getx_rx":            regexp.MustCompile(`\.obs\b`),
+			
+			// Hooks
+			"hooks":              regexp.MustCompile(`import\s+['"]package:flutter_hooks/`),
+			"hook_widget":        regexp.MustCompile(`extends\s+HookWidget`),
+			"use_state":          regexp.MustCompile(`useState\s*\(`),
+			"use_effect":         regexp.MustCompile(`useEffect\s*\(`),
+			"use_memoized":       regexp.MustCompile(`useMemoized\s*\(`),
+			"use_animation":      regexp.MustCompile(`useAnimation\s*\(`),
+			"use_controller":     regexp.MustCompile(`useTextEditingController\s*\(`),
+			
+			// MobX
+			"mobx":               regexp.MustCompile(`import\s+['"]package:mobx/`),
+			"observable":         regexp.MustCompile(`@observable`),
+			"action":             regexp.MustCompile(`@action`),
+			"computed":           regexp.MustCompile(`@computed`),
+			"observer":           regexp.MustCompile(`@observer`),
+			
+			// Redux
+			"redux":              regexp.MustCompile(`import\s+['"]package:flutter_redux/`),
+			"store_connector":    regexp.MustCompile(`StoreConnector<`),
+			"store_builder":      regexp.MustCompile(`StoreBuilder<`),
 		},
 	}
 }
@@ -196,6 +240,20 @@ func (fd *FlutterDetector) findWidgets(content string) []FlutterWidget {
 					Name: className,
 					Type: "hook",
 					HasBuildMethod: fd.hasBuildMethod(content, className),
+				})
+			}
+		}
+	}
+	
+	// Find InheritedWidget classes
+	if matches := fd.patterns["inherited_widget"].FindAllStringSubmatch(content, -1); matches != nil {
+		for _, match := range matches {
+			className := fd.extractClassName(match[0])
+			if className != "" {
+				widgets = append(widgets, FlutterWidget{
+					Name: className,
+					Type: "inherited",
+					HasBuildMethod: false, // InheritedWidget doesn't have build method
 				})
 			}
 		}
@@ -368,7 +426,7 @@ type FlutterWidget struct {
 func (m *Manager) IntegrateFlutterAnalysis(ast *types.AST, analysis *FlutterAnalysis) {
 	if analysis.IsFlutter && ast.Root != nil {
 		if ast.Root.Metadata == nil {
-			ast.Root.Metadata = make(map[string]interface{})
+			ast.Root.Metadata = make(map[string]any)
 		}
 		
 		// Store comprehensive Flutter analysis in metadata
