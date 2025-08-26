@@ -7,7 +7,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v0.2.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	github.com/tree-sitter/go-tree-sitter v0.25.0
 	github.com/tree-sitter/tree-sitter-go v0.23.4
 	github.com/tree-sitter/tree-sitter-java v0.23.5
