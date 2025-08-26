@@ -1040,7 +1040,18 @@ func (gb *GraphBuilder) matchDoubleStarRecursive(pathParts, patternParts []strin
 
 // GetSupportedLanguages returns the list of supported languages
 func (gb *GraphBuilder) GetSupportedLanguages() []types.Language {
-	return gb.parser.GetSupportedLanguages()
+	languageNames := gb.parser.GetSupportedLanguages()
+	languages := make([]types.Language, len(languageNames))
+	
+	for i, name := range languageNames {
+		languages[i] = types.Language{
+			Name:    name,
+			Enabled: true,
+			Parser:  "tree-sitter", // Default parser type
+		}
+	}
+	
+	return languages
 }
 
 // GetFileStats returns statistics about the analyzed files
