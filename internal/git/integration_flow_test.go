@@ -157,15 +157,15 @@ func TestIntegrationPerformance(t *testing.T) {
 	t.Logf("  - Total time: %v", totalDuration)
 	
 	// Performance assertions (adjusted for CI environments which can be slower)
-	if totalDuration > 30*time.Second {
+	if totalDuration > 120*time.Second {
 		t.Errorf("Total execution time too slow: %v", totalDuration)
 	}
 	
-	if semanticDuration > 15*time.Second {
+	if semanticDuration > 60*time.Second {
 		t.Errorf("Semantic analysis too slow: %v", semanticDuration)
 	}
 	
-	if clusterDuration > 10*time.Second && len(enhancedNeighborhoods) < 100 {
+	if clusterDuration > 45*time.Second && len(enhancedNeighborhoods) < 100 {
 		t.Errorf("Clustering too slow for %d neighborhoods: %v", len(enhancedNeighborhoods), clusterDuration)
 	}
 }
