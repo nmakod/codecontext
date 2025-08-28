@@ -5,6 +5,26 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0](https://github.com/nmakod/codecontext/compare/v2.9.0...v3.0.0) (2025-08-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* Refactored parser architecture from library-quality to enterprise-grade implementation
+
+### Features
+
+* adding dart_support ([7747318](https://github.com/nmakod/codecontext/commit/7747318536f46a139e320834e08c1d74541b33a1))
+* enhance Dart parser with comprehensive typedef extraction ([ffdaa57](https://github.com/nmakod/codecontext/commit/ffdaa5796f3f6a32c6807d7ebf57314470c27a02))
+* implement comprehensive Dart and Flutter language support ([7538ae2](https://github.com/nmakod/codecontext/commit/7538ae2b97853525290af09495364f4e70538390))
+* implement production-ready parser architecture with comprehensive error handling ([4d04706](https://github.com/nmakod/codecontext/commit/4d047068010ef423761a91530a4a90b442be5700))
+* upgrade MCP SDK from v0.2.0 to v0.3.0 with comprehensive fixes ([abb767a](https://github.com/nmakod/codecontext/commit/abb767a2b086b29272af304a1db550995d163cdc))
+
+
+### Bug Fixes
+
+* resolve type conversion issue in analyzer GetSupportedLanguages ([a720c09](https://github.com/nmakod/codecontext/commit/a720c098531395491e08b152953beecdb8f5d5ea))
+
 ## [2.9.0](https://github.com/nmakod/codecontext/compare/v2.8.0...v2.9.0) (2025-08-14)
 
 
