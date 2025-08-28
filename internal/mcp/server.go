@@ -943,14 +943,26 @@ func (s *CodeContextMCPServer) Run(ctx context.Context) error {
 func (s *CodeContextMCPServer) Stop() {
 	log.Printf("[MCP] Stopping MCP server...")
 	
-	// Set stopped flag to prevent new operations
+	// Set stopped flag to prevent new operations and protect watcher access
 	s.stopMutex.Lock()
+	defer s.stopMutex.Unlock()
+	
+	if s.stopped {
+		log.Printf("[MCP] Server already stopped")
+		return
+	}
 	s.stopped = true
-	s.stopMutex.Unlock()
 	
 	if s.watcher != nil {
 		log.Printf("[MCP] Stopping file watcher...")
-		s.watcher.Stop()
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[MCP] Warning: File watcher stop panicked: %v", r)
+				}
+			}()
+			s.watcher.Stop()
+		}()
 		s.watcher = nil
 		log.Printf("[MCP] File watcher stopped")
 	}
