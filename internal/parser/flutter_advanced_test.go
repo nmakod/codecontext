@@ -141,6 +141,7 @@ class FooterWidget extends StatelessWidget {
 				   symbol.Name == "ContentWidget" || symbol.Name == "FooterWidget" {
 					widgetCount++
 				}
+			case "state_class": // state classes should have their own type
 				if symbol.Name == "_MainScreenState" || symbol.Name == "_ContentWidgetState" {
 					stateClassCount++
 				}
@@ -231,7 +232,7 @@ class _AnimatedWidgetState extends State<AnimatedWidget>
 			if symbol.Name == "AnimatedWidget" && (symbol.Type == "widget" || symbol.Type == "class") {
 				foundAnimatedWidget = true
 			}
-			if symbol.Name == "_AnimatedWidgetState" && symbol.Type == "class" {
+			if symbol.Name == "_AnimatedWidgetState" && symbol.Type == "state_class" {
 				foundStateClass = true
 			}
 		}

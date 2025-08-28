@@ -231,6 +231,35 @@ func (c *MCPClient) sendAndReceive(msg MCPMessage, timeout time.Duration) (*MCPM
 	}
 }
 
+func (c *MCPClient) sendInitialized() error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	// Notifications should not have ID
+	initializedMsg := MCPMessage{
+		JSONRPC: "2.0",
+		Method:  "notifications/initialized",
+		Params:  map[string]interface{}{},
+	}
+
+	data, err := json.Marshal(initializedMsg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal initialized notification: %w", err)
+	}
+
+	if _, err := c.stdin.Write(data); err != nil {
+		return fmt.Errorf("failed to write initialized notification: %w", err)
+	}
+
+	if _, err := c.stdin.Write([]byte("\n")); err != nil {
+		return fmt.Errorf("failed to write newline: %w", err)
+	}
+
+	// Add a small delay to ensure the server processes the notification
+	time.Sleep(100 * time.Millisecond)
+	return nil
+}
+
 func createTestProject(t *testing.T) string {
 	tmpDir, err := os.MkdirTemp("", "mcp-integration-test-")
 	require.NoError(t, err)
@@ -473,6 +502,10 @@ func TestMCPToolsListAndCall(t *testing.T) {
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
 	require.NoError(t, err)
 
+	// Send initialized notification
+	err = client.sendInitialized()
+	require.NoError(t, err)
+
 	// List tools
 	listToolsMsg := MCPMessage{
 		JSONRPC: "2.0",
@@ -482,6 +515,12 @@ func TestMCPToolsListAndCall(t *testing.T) {
 
 	toolsResponse, err := client.sendAndReceive(listToolsMsg, 5*time.Second)
 	require.NoError(t, err)
+	if toolsResponse.Result == nil {
+		t.Logf("Tools response: %+v", toolsResponse)
+		if toolsResponse.Error != nil {
+			t.Logf("Error in tools response: %+v", toolsResponse.Error)
+		}
+	}
 	assert.NotNil(t, toolsResponse.Result)
 
 	// Verify expected tools are present
@@ -538,6 +577,10 @@ func TestMCPGetCodebaseOverview(t *testing.T) {
 	}
 
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
+	require.NoError(t, err)
+
+	// Send initialized notification
+	err = client.sendInitialized()
 	require.NoError(t, err)
 
 	// Call get_codebase_overview
@@ -601,6 +644,10 @@ func TestMCPSearchSymbols(t *testing.T) {
 	}
 
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
+	require.NoError(t, err)
+
+	// Send initialized notification
+	err = client.sendInitialized()
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -694,6 +741,10 @@ func TestMCPGetFileAnalysis(t *testing.T) {
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
 	require.NoError(t, err)
 
+	// Send initialized notification
+	err = client.sendInitialized()
+	require.NoError(t, err)
+
 	// Test file analysis
 	mainTSPath := filepath.Join(tmpDir, "main.ts")
 	toolCallMsg := MCPMessage{
@@ -759,6 +810,10 @@ func TestMCPGetDependencies(t *testing.T) {
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
 	require.NoError(t, err)
 
+	// Send initialized notification
+	err = client.sendInitialized()
+	require.NoError(t, err)
+
 	// Test global dependencies
 	toolCallMsg := MCPMessage{
 		JSONRPC: "2.0",
@@ -817,6 +872,10 @@ func TestMCPWatchChanges(t *testing.T) {
 	}
 
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
+	require.NoError(t, err)
+
+	// Send initialized notification
+	err = client.sendInitialized()
 	require.NoError(t, err)
 
 	// Enable watching
@@ -891,6 +950,10 @@ func TestMCPErrorHandling(t *testing.T) {
 	}
 
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
+	require.NoError(t, err)
+
+	// Send initialized notification
+	err = client.sendInitialized()
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -1004,6 +1067,10 @@ func TestMCPPerformance(t *testing.T) {
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
 	require.NoError(t, err)
 
+	// Send initialized notification
+	err = client.sendInitialized()
+	require.NoError(t, err)
+
 	// Test performance of multiple tool calls
 	start := time.Now()
 	numCalls := 10
@@ -1056,6 +1123,10 @@ func TestMCPConcurrentRequests(t *testing.T) {
 	}
 
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
+	require.NoError(t, err)
+
+	// Send initialized notification
+	err = client.sendInitialized()
 	require.NoError(t, err)
 
 	// Test sequential requests (MCP stdio doesn't support true concurrency)
@@ -1189,6 +1260,10 @@ class Project2Class {
 		},
 	}
 	_, err = client.sendAndReceive(initMsg, 10*time.Second)
+	require.NoError(t, err)
+
+	// Send initialized notification
+	err = client.sendInitialized()
 	require.NoError(t, err)
 	
 	t.Run("codebase_overview_with_dynamic_target", func(t *testing.T) {

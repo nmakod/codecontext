@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -22,6 +23,9 @@ type FileWatcher struct {
 	debounce   time.Duration
 	changes    chan FileChange
 	done       chan struct{}
+	wg         sync.WaitGroup // For coordinating goroutine shutdown
+	stopMutex  sync.Mutex     // Protects against multiple Stop() calls
+	stopped    bool           // Tracks if Stop() has been called
 
 	// Configuration
 	excludePatterns []string
@@ -87,6 +91,14 @@ func NewFileWatcher(config Config) (*FileWatcher, error) {
 
 // Start begins watching for file changes
 func (fw *FileWatcher) Start(ctx context.Context) error {
+	// Check if already stopped before starting
+	fw.stopMutex.Lock()
+	if fw.stopped {
+		fw.stopMutex.Unlock()
+		return fmt.Errorf("cannot start: watcher is already stopped")
+	}
+	fw.stopMutex.Unlock()
+	
 	// Add target directory to watcher
 	err := fw.addDirectory(fw.targetDir)
 	if err != nil {
@@ -94,10 +106,18 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 	}
 
 	// Start change processor
-	go fw.processChanges(ctx)
+	fw.wg.Add(1)
+	go func() {
+		defer fw.wg.Done()
+		fw.processChanges(ctx)
+	}()
 
 	// Start file system event handler
-	go fw.handleEvents(ctx)
+	fw.wg.Add(1)
+	go func() {
+		defer fw.wg.Done()
+		fw.handleEvents(ctx)
+	}()
 
 	log.Printf("🔍 File watcher started for: %s", fw.targetDir)
 	log.Printf("   Debounce time: %v", fw.debounce)
@@ -108,7 +128,24 @@ func (fw *FileWatcher) Start(ctx context.Context) error {
 
 // Stop stops the file watcher
 func (fw *FileWatcher) Stop() error {
+	fw.stopMutex.Lock()
+	defer fw.stopMutex.Unlock()
+	
+	// Check if already stopped
+	if fw.stopped {
+		return nil
+	}
+	
+	// Mark as stopped
+	fw.stopped = true
+	
+	// Signal goroutines to stop
 	close(fw.done)
+	
+	// Wait for all goroutines to complete
+	fw.wg.Wait()
+	
+	// Now safely close the watcher
 	return fw.watcher.Close()
 }
 
@@ -131,6 +168,15 @@ func (fw *FileWatcher) addDirectory(dir string) error {
 		// Skip excluded directories
 		if fw.shouldExclude(path) {
 			return filepath.SkipDir
+		}
+
+		// Check if the watcher has been stopped before trying to add
+		fw.stopMutex.Lock()
+		stopped := fw.stopped
+		fw.stopMutex.Unlock()
+		
+		if stopped {
+			return fmt.Errorf("watcher is stopped, cannot add directory: %s", path)
 		}
 
 		return fw.watcher.Add(path)

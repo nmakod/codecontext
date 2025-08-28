@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,6 +34,8 @@ type CodeContextMCPServer struct {
 	watcher  *watcher.FileWatcher
 	graph    *types.CodeGraph
 	analyzer *analyzer.GraphBuilder
+	stopMutex sync.RWMutex // Protect against concurrent stop operations
+	stopped   bool         // Track server state
 }
 
 // Tool argument structs
@@ -178,8 +181,7 @@ func (s *CodeContextMCPServer) registerTools() {
 
 // Tool implementations
 
-func (s *CodeContextMCPServer) getCodebaseOverview(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetCodebaseOverviewArgs]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func (s *CodeContextMCPServer) getCodebaseOverview(ctx context.Context, req *mcp.CallToolRequest, args GetCodebaseOverviewArgs) (*mcp.CallToolResult, any, error) {
 	log.Printf("[MCP] Tool called: get_codebase_overview with args: %+v", args)
 	start := time.Now()
 	
@@ -190,7 +192,7 @@ func (s *CodeContextMCPServer) getCodebaseOverview(ctx context.Context, cc *mcp.
 	log.Printf("[MCP] Refreshing analysis for codebase overview...")
 	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
-		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
+		return nil, nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
 
 	log.Printf("[MCP] Generating markdown content...")
@@ -208,19 +210,18 @@ func (s *CodeContextMCPServer) getCodebaseOverview(ctx context.Context, cc *mcp.
 
 	elapsed := time.Since(start)
 	log.Printf("[MCP] Tool completed: get_codebase_overview (took %v)", elapsed)
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: content}},
-	}, nil
+	}, nil, nil
 }
 
-func (s *CodeContextMCPServer) getFileAnalysis(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetFileAnalysisArgs]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func (s *CodeContextMCPServer) getFileAnalysis(ctx context.Context, req *mcp.CallToolRequest, args GetFileAnalysisArgs) (*mcp.CallToolResult, any, error) {
 	log.Printf("[MCP] Tool called: get_file_analysis with args: %+v", args)
 	start := time.Now()
 	
 	if args.FilePath == "" {
 		log.Printf("[MCP] ERROR: file_path is required")
-		return nil, fmt.Errorf("file_path is required")
+		return nil, nil, fmt.Errorf("file_path is required")
 	}
 
 	// Resolve target directory
@@ -230,7 +231,7 @@ func (s *CodeContextMCPServer) getFileAnalysis(ctx context.Context, cc *mcp.Serv
 	log.Printf("[MCP] Refreshing analysis for file: %s", args.FilePath)
 	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
-		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
+		return nil, nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
 
 	// Find the file in our graph
@@ -238,7 +239,7 @@ func (s *CodeContextMCPServer) getFileAnalysis(ctx context.Context, cc *mcp.Serv
 	fileNode, exists := s.graph.Files[args.FilePath]
 	if !exists {
 		log.Printf("[MCP] ERROR: File not found in graph: %s (available files: %d)", args.FilePath, len(s.graph.Files))
-		return nil, fmt.Errorf("file not found: %s", args.FilePath)
+		return nil, nil, fmt.Errorf("file not found: %s", args.FilePath)
 	}
 	log.Printf("[MCP] Found file in graph: %s (language: %s, lines: %d, symbols: %d)", args.FilePath, fileNode.Language, fileNode.Lines, len(fileNode.Symbols))
 
@@ -279,19 +280,18 @@ func (s *CodeContextMCPServer) getFileAnalysis(ctx context.Context, cc *mcp.Serv
 
 	elapsed := time.Since(start)
 	log.Printf("[MCP] Tool completed: get_file_analysis (took %v)", elapsed)
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: analysis}},
-	}, nil
+	}, nil, nil
 }
 
-func (s *CodeContextMCPServer) getSymbolInfo(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetSymbolInfoArgs]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func (s *CodeContextMCPServer) getSymbolInfo(ctx context.Context, req *mcp.CallToolRequest, args GetSymbolInfoArgs) (*mcp.CallToolResult, any, error) {
 	log.Printf("[MCP] Tool called: get_symbol_info with args: %+v", args)
 	start := time.Now()
 	
 	if args.SymbolName == "" {
 		log.Printf("[MCP] ERROR: symbol_name is required")
-		return nil, fmt.Errorf("symbol_name is required")
+		return nil, nil, fmt.Errorf("symbol_name is required")
 	}
 
 	// Resolve target directory
@@ -301,7 +301,7 @@ func (s *CodeContextMCPServer) getSymbolInfo(ctx context.Context, cc *mcp.Server
 	log.Printf("[MCP] Refreshing analysis for symbol lookup: %s", args.SymbolName)
 	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
-		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
+		return nil, nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
 
 	log.Printf("[MCP] Searching for symbol: %s in %d symbols", args.SymbolName, len(s.graph.Symbols))
@@ -315,7 +315,7 @@ func (s *CodeContextMCPServer) getSymbolInfo(ctx context.Context, cc *mcp.Server
 	log.Printf("[MCP] Found %d symbols matching '%s'", len(foundSymbols), args.SymbolName)
 	if len(foundSymbols) == 0 {
 		log.Printf("[MCP] ERROR: Symbol not found: %s", args.SymbolName)
-		return nil, fmt.Errorf("symbol '%s' not found", args.SymbolName)
+		return nil, nil, fmt.Errorf("symbol '%s' not found", args.SymbolName)
 	}
 
 	result := fmt.Sprintf("# Symbol Information: %s\n\n", args.SymbolName)
@@ -348,19 +348,18 @@ func (s *CodeContextMCPServer) getSymbolInfo(ctx context.Context, cc *mcp.Server
 
 	elapsed := time.Since(start)
 	log.Printf("[MCP] Tool completed: get_symbol_info (took %v)", elapsed)
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
-func (s *CodeContextMCPServer) searchSymbols(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[SearchSymbolsArgs]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func (s *CodeContextMCPServer) searchSymbols(ctx context.Context, req *mcp.CallToolRequest, args SearchSymbolsArgs) (*mcp.CallToolResult, any, error) {
 	log.Printf("[MCP] Tool called: search_symbols with args: %+v", args)
 	start := time.Now()
 	
 	if args.Query == "" {
 		log.Printf("[MCP] ERROR: query is required")
-		return nil, fmt.Errorf("query is required")
+		return nil, nil, fmt.Errorf("query is required")
 	}
 
 	// Set default limit
@@ -376,7 +375,7 @@ func (s *CodeContextMCPServer) searchSymbols(ctx context.Context, cc *mcp.Server
 	log.Printf("[MCP] Refreshing analysis for symbol search...")
 	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
-		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
+		return nil, nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
 
 	var matches []*types.Symbol
@@ -410,9 +409,9 @@ func (s *CodeContextMCPServer) searchSymbols(ctx context.Context, cc *mcp.Server
 
 	if len(matches) == 0 {
 		result := fmt.Sprintf("No symbols found matching '%s'", args.Query)
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: result}},
-		}, nil
+		}, nil, nil
 	}
 
 	result := fmt.Sprintf("# Symbol Search Results: '%s'\n\n", args.Query)
@@ -444,13 +443,12 @@ func (s *CodeContextMCPServer) searchSymbols(ctx context.Context, cc *mcp.Server
 
 	elapsed := time.Since(start)
 	log.Printf("[MCP] Tool completed: search_symbols (took %v, found %d matches)", elapsed, len(matches))
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
-func (s *CodeContextMCPServer) getDependencies(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetDependenciesArgs]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func (s *CodeContextMCPServer) getDependencies(ctx context.Context, req *mcp.CallToolRequest, args GetDependenciesArgs) (*mcp.CallToolResult, any, error) {
 	log.Printf("[MCP] Tool called: get_dependencies with args: %+v", args)
 	start := time.Now()
 	
@@ -461,7 +459,7 @@ func (s *CodeContextMCPServer) getDependencies(ctx context.Context, cc *mcp.Serv
 	log.Printf("[MCP] Refreshing analysis for dependency analysis...")
 	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 		log.Printf("[MCP] ERROR: Failed to refresh analysis: %v", err)
-		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
+		return nil, nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
 
 	result := "# Dependency Analysis\n\n"
@@ -537,23 +535,32 @@ func (s *CodeContextMCPServer) getDependencies(ctx context.Context, cc *mcp.Serv
 
 	elapsed := time.Since(start)
 	log.Printf("[MCP] Tool completed: get_dependencies (took %v)", elapsed)
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
-func (s *CodeContextMCPServer) watchChanges(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[WatchChangesArgs]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func (s *CodeContextMCPServer) watchChanges(ctx context.Context, req *mcp.CallToolRequest, args WatchChangesArgs) (*mcp.CallToolResult, any, error) {
 	log.Printf("[MCP] Tool called: watch_changes with args: %+v", args)
 	start := time.Now()
+	
+	// Check if server is being stopped
+	s.stopMutex.RLock()
+	if s.stopped {
+		s.stopMutex.RUnlock()
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "Server is shutting down, cannot process watch changes"}},
+		}, nil, nil
+	}
+	s.stopMutex.RUnlock()
 	
 	if args.Enable {
 		log.Printf("[MCP] Enabling file watching...")
 		if s.watcher != nil {
 			log.Printf("[MCP] File watching is already enabled")
-			return &mcp.CallToolResultFor[any]{
+			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "File watching is already enabled"}},
-			}, nil
+			}, nil, nil
 		}
 		
 		// Resolve target directory
@@ -572,7 +579,7 @@ func (s *CodeContextMCPServer) watchChanges(ctx context.Context, cc *mcp.ServerS
 		fileWatcher, err := watcher.NewFileWatcher(config)
 		if err != nil {
 			log.Printf("[MCP] ERROR: Failed to create file watcher: %v", err)
-			return nil, fmt.Errorf("failed to start file watcher: %w", err)
+			return nil, nil, fmt.Errorf("failed to start file watcher: %w", err)
 		}
 		
 		s.watcher = fileWatcher
@@ -589,16 +596,16 @@ func (s *CodeContextMCPServer) watchChanges(ctx context.Context, cc *mcp.ServerS
 		
 		elapsed := time.Since(start)
 		log.Printf("[MCP] Tool completed: watch_changes (enable) (took %v)", elapsed)
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "File watching enabled. Real-time change notifications are now active."}},
-		}, nil
+		}, nil, nil
 	} else {
 		log.Printf("[MCP] Disabling file watching...")
 		if s.watcher == nil {
 			log.Printf("[MCP] File watching is not currently enabled")
-			return &mcp.CallToolResultFor[any]{
+			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "File watching is not currently enabled"}},
-			}, nil
+			}, nil, nil
 		}
 		
 		log.Printf("[MCP] Stopping file watcher...")
@@ -608,15 +615,14 @@ func (s *CodeContextMCPServer) watchChanges(ctx context.Context, cc *mcp.ServerS
 		
 		elapsed := time.Since(start)
 		log.Printf("[MCP] Tool completed: watch_changes (disable) (took %v)", elapsed)
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "File watching disabled"}},
-		}, nil
+		}, nil, nil
 	}
 }
 
-func (s *CodeContextMCPServer) getSemanticNeighborhoods(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetSemanticNeighborhoodsArgs]) (*mcp.CallToolResultFor[any], error) {
+func (s *CodeContextMCPServer) getSemanticNeighborhoods(ctx context.Context, req *mcp.CallToolRequest, args GetSemanticNeighborhoodsArgs) (*mcp.CallToolResult, any, error) {
 	start := time.Now()
-	args := params.Arguments
 	log.Printf("[MCP] Tool called: get_semantic_neighborhoods with args: %+v", args)
 
 	// Resolve target directory
@@ -626,9 +632,9 @@ func (s *CodeContextMCPServer) getSemanticNeighborhoods(ctx context.Context, cc 
 	if s.graph == nil {
 		if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
 			log.Printf("[MCP] Failed to refresh analysis: %v", err)
-			return &mcp.CallToolResultFor[any]{
+			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "Failed to analyze codebase: " + err.Error()}},
-			}, nil
+			}, nil, nil
 		}
 	}
 
@@ -636,9 +642,9 @@ func (s *CodeContextMCPServer) getSemanticNeighborhoods(ctx context.Context, cc 
 	semanticData, err := s.getSemanticNeighborhoodsData()
 	if err != nil {
 		log.Printf("[MCP] Failed to get semantic neighborhoods: %v", err)
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "Failed to get semantic neighborhoods: " + err.Error()}},
-		}, nil
+		}, nil, nil
 	}
 
 	// Build response based on arguments
@@ -647,9 +653,9 @@ func (s *CodeContextMCPServer) getSemanticNeighborhoods(ctx context.Context, cc 
 	elapsed := time.Since(start)
 	log.Printf("[MCP] Tool completed: get_semantic_neighborhoods (took %v)", elapsed)
 	
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: response}},
-	}, nil
+	}, nil, nil
 }
 
 // Helper methods
@@ -936,6 +942,12 @@ func (s *CodeContextMCPServer) Run(ctx context.Context) error {
 // Stop gracefully stops the MCP server
 func (s *CodeContextMCPServer) Stop() {
 	log.Printf("[MCP] Stopping MCP server...")
+	
+	// Set stopped flag to prevent new operations
+	s.stopMutex.Lock()
+	s.stopped = true
+	s.stopMutex.Unlock()
+	
 	if s.watcher != nil {
 		log.Printf("[MCP] Stopping file watcher...")
 		s.watcher.Stop()
@@ -1033,19 +1045,18 @@ func (s *CodeContextMCPServer) matchesFramework(symbol *types.Symbol, framework 
 }
 
 // getFrameworkAnalysis provides comprehensive framework-specific analysis
-func (s *CodeContextMCPServer) getFrameworkAnalysis(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetFrameworkAnalysisArgs]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func (s *CodeContextMCPServer) getFrameworkAnalysis(ctx context.Context, req *mcp.CallToolRequest, args GetFrameworkAnalysisArgs) (*mcp.CallToolResult, any, error) {
 
 	// Resolve target directory
 	targetDir := s.resolveTargetDir(args.TargetDir)
 
 	// Ensure we have fresh analysis
 	if err := s.refreshAnalysisWithTargetDir(targetDir); err != nil {
-		return nil, fmt.Errorf("failed to refresh analysis: %w", err)
+		return nil, nil, fmt.Errorf("failed to refresh analysis: %w", err)
 	}
 
 	if s.graph == nil {
-		return nil, fmt.Errorf("no graph available - ensure analysis has been performed")
+		return nil, nil, fmt.Errorf("no graph available - ensure analysis has been performed")
 	}
 
 	// Get all framework-specific symbols
@@ -1088,9 +1099,9 @@ func (s *CodeContextMCPServer) getFrameworkAnalysis(ctx context.Context, cc *mcp
 
 	response := s.buildFrameworkAnalysisResponse(frameworkSymbols, frameworkCounts, args)
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: response}},
-	}, nil
+	}, nil, nil
 }
 
 // getFrameworkForFile determines the framework for a given file path

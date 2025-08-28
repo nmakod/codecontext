@@ -158,10 +158,7 @@ func TestGetCodebaseOverview(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			params := &mcp.CallToolParamsFor[GetCodebaseOverviewArgs]{
-				Arguments: tt.args,
-			}
-			response, err := server.getCodebaseOverview(ctx, nil, params)
+			response, _, err := server.getCodebaseOverview(ctx, nil, tt.args)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -233,10 +230,7 @@ func TestGetFileAnalysis(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			params := &mcp.CallToolParamsFor[GetFileAnalysisArgs]{
-				Arguments: tt.args,
-			}
-			response, err := server.getFileAnalysis(ctx, nil, params)
+			response, _, err := server.getFileAnalysis(ctx, nil, tt.args)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -321,10 +315,7 @@ func TestSearchSymbols(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			params := &mcp.CallToolParamsFor[SearchSymbolsArgs]{
-				Arguments: tt.args,
-			}
-			response, err := server.searchSymbols(ctx, nil, params)
+			response, _, err := server.searchSymbols(ctx, nil, tt.args)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -397,10 +388,7 @@ func TestGetSymbolInfo(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			params := &mcp.CallToolParamsFor[GetSymbolInfoArgs]{
-				Arguments: tt.args,
-			}
-			response, err := server.getSymbolInfo(ctx, nil, params)
+			response, _, err := server.getSymbolInfo(ctx, nil, tt.args)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -480,10 +468,7 @@ func TestGetDependencies(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			params := &mcp.CallToolParamsFor[GetDependenciesArgs]{
-				Arguments: tt.args,
-			}
-			response, err := server.getDependencies(ctx, nil, params)
+			response, _, err := server.getDependencies(ctx, nil, tt.args)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -541,10 +526,7 @@ func TestWatchChanges(t *testing.T) {
 			setup: func() {
 				// First enable watching
 				ctx := context.Background()
-				params := &mcp.CallToolParamsFor[WatchChangesArgs]{
-					Arguments: WatchChangesArgs{Enable: true},
-				}
-				response, err := server.watchChanges(ctx, nil, params)
+				response, _, err := server.watchChanges(ctx, nil, WatchChangesArgs{Enable: true})
 				require.NoError(t, err)
 				require.NotNil(t, response)
 			},
@@ -557,10 +539,7 @@ func TestWatchChanges(t *testing.T) {
 			setup: func() {
 				// First enable watching
 				ctx := context.Background()
-				params := &mcp.CallToolParamsFor[WatchChangesArgs]{
-					Arguments: WatchChangesArgs{Enable: true},
-				}
-				response, err := server.watchChanges(ctx, nil, params)
+				response, _, err := server.watchChanges(ctx, nil, WatchChangesArgs{Enable: true})
 				require.NoError(t, err)
 				require.NotNil(t, response)
 			},
@@ -585,10 +564,7 @@ func TestWatchChanges(t *testing.T) {
 			tt.setup()
 
 			ctx := context.Background()
-			params := &mcp.CallToolParamsFor[WatchChangesArgs]{
-				Arguments: tt.args,
-			}
-			response, err := server.watchChanges(ctx, nil, params)
+			response, _, err := server.watchChanges(ctx, nil, tt.args)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -625,22 +601,28 @@ func TestMCPServerStop(t *testing.T) {
 	server.Stop()
 	assert.Nil(t, server.watcher)
 
-	// Test stop with watcher
+	// Test stop with watcher - create a fresh server
 	tmpDir := createTestDirectory(t)
 	defer os.RemoveAll(tmpDir)
 
-	server.config.TargetDir = tmpDir
-	ctx := context.Background()
-	params := &mcp.CallToolParamsFor[WatchChangesArgs]{
-		Arguments: WatchChangesArgs{Enable: true},
+	config2 := &MCPConfig{
+		Name:       "test-codecontext",
+		Version:    "test-1.0.0",
+		TargetDir:  tmpDir,
+		DebounceMs: 100,
 	}
-	response, err := server.watchChanges(ctx, nil, params)
+	
+	server2, err := NewCodeContextMCPServer(config2)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	response, _, err := server2.watchChanges(ctx, nil, WatchChangesArgs{Enable: true})
 	require.NoError(t, err)
 	require.NotNil(t, response)
-	require.NotNil(t, server.watcher)
+	require.NotNil(t, server2.watcher)
 
-	server.Stop()
-	assert.Nil(t, server.watcher)
+	server2.Stop()
+	assert.Nil(t, server2.watcher)
 }
 
 // Benchmark tests
@@ -663,13 +645,11 @@ func BenchmarkGetCodebaseOverview(b *testing.B) {
 	require.NoError(b, err)
 
 	ctx := context.Background()
-	params := &mcp.CallToolParamsFor[GetCodebaseOverviewArgs]{
-		Arguments: GetCodebaseOverviewArgs{IncludeStats: false},
-	}
+	args := GetCodebaseOverviewArgs{IncludeStats: false}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := server.getCodebaseOverview(ctx, nil, params)
+		_, _, err := server.getCodebaseOverview(ctx, nil, args)
 		require.NoError(b, err)
 	}
 }
@@ -697,13 +677,11 @@ func BenchmarkSearchSymbols(b *testing.B) {
 	require.NoError(b, err)
 
 	ctx := context.Background()
-	params := &mcp.CallToolParamsFor[SearchSymbolsArgs]{
-		Arguments: SearchSymbolsArgs{Query: "test", Limit: 10},
-	}
+	args := SearchSymbolsArgs{Query: "test", Limit: 10}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := server.searchSymbols(ctx, nil, params)
+		_, _, err := server.searchSymbols(ctx, nil, args)
 		require.NoError(b, err)
 	}
 }
@@ -888,17 +866,14 @@ class Project2Class {
 	require.NoError(t, err)
 	
 	ctx := context.Background()
-	session := &mcp.ServerSession{}
 	
 	t.Run("default target directory", func(t *testing.T) {
-		params := &mcp.CallToolParamsFor[GetCodebaseOverviewArgs]{
-			Arguments: GetCodebaseOverviewArgs{
-				IncludeStats: false,
-				TargetDir:    "", // Empty means use default
-			},
+		args := GetCodebaseOverviewArgs{
+			IncludeStats: false,
+			TargetDir:    "", // Empty means use default
 		}
 		
-		result, err := server.getCodebaseOverview(ctx, session, params)
+		result, _, err := server.getCodebaseOverview(ctx, nil, args)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		
@@ -908,14 +883,12 @@ class Project2Class {
 	})
 	
 	t.Run("explicit target directory", func(t *testing.T) {
-		params := &mcp.CallToolParamsFor[GetCodebaseOverviewArgs]{
-			Arguments: GetCodebaseOverviewArgs{
-				IncludeStats: false,
-				TargetDir:    project2Dir, // Explicit different directory
-			},
+		args := GetCodebaseOverviewArgs{
+			IncludeStats: false,
+			TargetDir:    project2Dir, // Explicit different directory
 		}
 		
-		result, err := server.getCodebaseOverview(ctx, session, params)
+		result, _, err := server.getCodebaseOverview(ctx, nil, args)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		
@@ -955,17 +928,14 @@ function project2Function() {
 	defer server.Stop()
 	
 	ctx := context.Background()
-	session := &mcp.ServerSession{}
 	
 	t.Run("analyze file in different target directory", func(t *testing.T) {
-		params := &mcp.CallToolParamsFor[GetFileAnalysisArgs]{
-			Arguments: GetFileAnalysisArgs{
-				FilePath:  project2File,
-				TargetDir: project2Dir, // Different from default
-			},
+		args := GetFileAnalysisArgs{
+			FilePath:  project2File,
+			TargetDir: project2Dir, // Different from default
 		}
 		
-		result, err := server.getFileAnalysis(ctx, session, params)
+		result, _, err := server.getFileAnalysis(ctx, nil, args)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		
@@ -1003,18 +973,15 @@ function uniqueFunction2() {
 	defer server.Stop()
 	
 	ctx := context.Background()
-	session := &mcp.ServerSession{}
 	
 	t.Run("search symbols in different target directory", func(t *testing.T) {
-		params := &mcp.CallToolParamsFor[SearchSymbolsArgs]{
-			Arguments: SearchSymbolsArgs{
-				Query:     "uniqueFunction2",
-				Limit:     10,
-				TargetDir: project2Dir, // Different from default
-			},
+		args := SearchSymbolsArgs{
+			Query:     "uniqueFunction2",
+			Limit:     10,
+			TargetDir: project2Dir, // Different from default
 		}
 		
-		result, err := server.searchSymbols(ctx, session, params)
+		result, _, err := server.searchSymbols(ctx, nil, args)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		
@@ -1030,17 +997,14 @@ func TestInvalidTargetDirErrorHandling(t *testing.T) {
 	defer server.Stop()
 	
 	ctx := context.Background()
-	session := &mcp.ServerSession{}
 	
 	t.Run("non-existent target directory", func(t *testing.T) {
-		params := &mcp.CallToolParamsFor[GetCodebaseOverviewArgs]{
-			Arguments: GetCodebaseOverviewArgs{
-				IncludeStats: false,
-				TargetDir:    "/non/existent/directory",
-			},
+		args := GetCodebaseOverviewArgs{
+			IncludeStats: false,
+			TargetDir:    "/non/existent/directory",
 		}
 		
-		result, err := server.getCodebaseOverview(ctx, session, params)
+		result, _, err := server.getCodebaseOverview(ctx, nil, args)
 		// Should return error for non-existent directory
 		assert.Error(t, err)
 		assert.Nil(t, result)
@@ -1059,17 +1023,14 @@ func TestWatchChangesWithTargetDir(t *testing.T) {
 	defer server.Stop()
 	
 	ctx := context.Background()
-	session := &mcp.ServerSession{}
 	
 	t.Run("enable watching with custom target directory", func(t *testing.T) {
-		params := &mcp.CallToolParamsFor[WatchChangesArgs]{
-			Arguments: WatchChangesArgs{
-				Enable:    true,
-				TargetDir: projectDir, // Different from default
-			},
+		args := WatchChangesArgs{
+			Enable:    true,
+			TargetDir: projectDir, // Different from default
 		}
 		
-		result, err := server.watchChanges(ctx, session, params)
+		result, _, err := server.watchChanges(ctx, nil, args)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 		

@@ -256,7 +256,7 @@ When enabled (`--watch`), the MCP server:
 
 ### Official MCP SDK Implementation
 
-**SDK Version:** github.com/modelcontextprotocol/go-sdk v0.2.0  
+**SDK Version:** github.com/modelcontextprotocol/go-sdk v0.3.0  
 **Protocol Version:** 2024-11-05  
 **Compatibility:** Full Claude Desktop integration
 
