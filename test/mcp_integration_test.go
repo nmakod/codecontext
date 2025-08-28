@@ -44,13 +44,14 @@ type MCPInitParams struct {
 
 // MCPClient represents a test MCP client
 type MCPClient struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	stderr io.ReadCloser
-	reader *bufio.Reader
-	mutex  sync.Mutex
-	msgID  int
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	stdout  io.ReadCloser
+	stderr  io.ReadCloser
+	reader  *bufio.Reader
+	mutex   sync.Mutex
+	msgID   int
+	verbose bool // Control debug logging
 }
 
 func NewMCPClient(targetDir string, verbose bool) (*MCPClient, error) {
@@ -58,6 +59,12 @@ func NewMCPClient(targetDir string, verbose bool) (*MCPClient, error) {
 	projectRoot, err := filepath.Abs("..")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get project root: %w", err)
+	}
+	
+	// Debug logging (always show for context during development)
+	if verbose {
+		fmt.Printf("[MCP-TEST] Creating client for target dir: %s\n", targetDir)
+		fmt.Printf("[MCP-TEST] Project root: %s\n", projectRoot)
 	}
 	
 	codecontextPath := filepath.Join(projectRoot, "codecontext")
@@ -103,6 +110,11 @@ func NewMCPClient(targetDir string, verbose bool) (*MCPClient, error) {
 	// Start the MCP server using absolute path
 	cmd := exec.Command(codecontextPath, args...)
 	cmd.Dir = projectRoot
+	
+	if verbose {
+		fmt.Printf("[MCP-TEST] Starting MCP server: %s %v\n", codecontextPath, args)
+		fmt.Printf("[MCP-TEST] Working directory: %s\n", projectRoot)
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -124,17 +136,28 @@ func NewMCPClient(targetDir string, verbose bool) (*MCPClient, error) {
 		return nil, fmt.Errorf("failed to start MCP server (binary: %s, args: %v, cwd: %s): %w", 
 			codecontextPath, args, projectRoot, err)
 	}
+	
+	if verbose {
+		fmt.Printf("[MCP-TEST] MCP server started with PID: %d\n", cmd.Process.Pid)
+	}
 
 	client := &MCPClient{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: stdout,
-		stderr: stderr,
-		reader: bufio.NewReader(stdout),
-		msgID:  1,
+		cmd:     cmd,
+		stdin:   stdin,
+		stdout:  stdout,
+		stderr:  stderr,
+		reader:  bufio.NewReader(stdout),
+		msgID:   1,
+		verbose: verbose,
 	}
 
 	return client, nil
+}
+
+func (c *MCPClient) debugf(format string, args ...interface{}) {
+	if c.verbose {
+		fmt.Printf("[MCP-TEST] "+format+"\n", args...)
+	}
 }
 
 func (c *MCPClient) Close() error {
@@ -167,6 +190,8 @@ func (c *MCPClient) sendMessage(msg MCPMessage) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
+	
+	c.debugf("Sending message: %s", string(data))
 
 	if _, err := c.stdin.Write(data); err != nil {
 		return fmt.Errorf("failed to write message: %w", err)
@@ -191,6 +216,8 @@ func (c *MCPClient) readMessage() (*MCPMessage, error) {
 	if line == "" {
 		return nil, fmt.Errorf("received empty line")
 	}
+	
+	c.debugf("Received message: %s", line)
 
 	var msg MCPMessage
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
@@ -223,10 +250,20 @@ func (c *MCPClient) sendAndReceive(msg MCPMessage, timeout time.Duration) (*MCPM
 
 	select {
 	case resp := <-responseCh:
+		c.debugf("Received response: %+v", resp)
 		return resp, nil
 	case err := <-errorCh:
+		c.debugf("Received error: %v", err)
 		return nil, err
 	case <-ctx.Done():
+		c.debugf("Timeout after %v waiting for response", timeout)
+		// Try to capture any pending stderr output
+		if c.stderr != nil {
+			buf := make([]byte, 1024)
+			if n, err := c.stderr.Read(buf); err == nil && n > 0 {
+				c.debugf("Server stderr: %s", string(buf[:n]))
+			}
+		}
 		return nil, fmt.Errorf("timeout waiting for response")
 	}
 }
