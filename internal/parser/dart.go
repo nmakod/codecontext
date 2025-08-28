@@ -357,6 +357,7 @@ func (m *Manager) extractDartNodesFullWithError(content string, lines []string) 
 	try("extract_mixins", extractor.extractMixins)
 	try("extract_extensions", extractor.extractExtensions)
 	try("extract_enums", extractor.extractEnums)
+	try("extract_typedefs", extractor.extractTypedefs)
 	try("extract_functions", extractor.extractFunctions)
 	try("extract_variables", extractor.extractVariables)
 	try("extract_part_directives", extractor.extractPartDirectives)
@@ -594,6 +595,81 @@ func (e *DartNodeExtractor) extractEnums() {
 				enumNode.Children = append(enumNode.Children, e.manager.extractEnumValues(enumContent, lineNum)...)
 				
 				e.nodes = append(e.nodes, enumNode)
+			}
+		}
+	}
+}
+
+// extractTypedefs extracts typedef declarations
+func (e *DartNodeExtractor) extractTypedefs() {
+	if matches := dartPatterns["typedef"].FindAllStringSubmatch(e.content, -1); matches != nil {
+		for _, match := range matches {
+			if len(match) > 2 {
+				lineNum := e.manager.findLineNumber(e.content, match[0])
+				typedefName := match[1]
+				targetType := match[2]
+				
+				// For generic typedefs like "Callback<T>", extract just the base name
+				if strings.Contains(typedefName, "<") {
+					typedefName = strings.Split(typedefName, "<")[0]
+				}
+				
+				typedefNode := &types.ASTNode{
+					Id:   fmt.Sprintf("typedef-%s-%d", typedefName, lineNum),
+					Type: "typedef_declaration",
+					Value: match[0],
+					Location: types.FileLocation{
+						Line:    lineNum,
+						Column:  1,
+						EndLine: lineNum,
+						EndColumn: len(match[0]) + 1,
+					},
+					Children: []*types.ASTNode{
+						{
+							Id:    fmt.Sprintf("typedef-name-%s", typedefName),
+							Type:  "identifier",
+							Value: typedefName,
+						},
+						{
+							Id:    fmt.Sprintf("typedef-target-%s", targetType),
+							Type:  "type_identifier",
+							Value: targetType,
+						},
+					},
+				}
+				
+				e.nodes = append(e.nodes, typedefNode)
+			}
+		}
+	}
+	
+	// Also check for function typedefs
+	if matches := dartPatterns["functionTypedef"].FindAllStringSubmatch(e.content, -1); matches != nil {
+		for _, match := range matches {
+			if len(match) > 1 {
+				lineNum := e.manager.findLineNumber(e.content, match[0])
+				typedefName := match[1]
+				
+				typedefNode := &types.ASTNode{
+					Id:   fmt.Sprintf("function-typedef-%s-%d", typedefName, lineNum),
+					Type: "function_typedef",
+					Value: match[0],
+					Location: types.FileLocation{
+						Line:    lineNum,
+						Column:  1,
+						EndLine: lineNum,
+						EndColumn: len(match[0]) + 1,
+					},
+					Children: []*types.ASTNode{
+						{
+							Id:    fmt.Sprintf("function-typedef-name-%s", typedefName),
+							Type:  "identifier",
+							Value: typedefName,
+						},
+					},
+				}
+				
+				e.nodes = append(e.nodes, typedefNode)
 			}
 		}
 	}
