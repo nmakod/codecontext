@@ -92,6 +92,7 @@ var flutterPatterns = map[string]*regexp.Regexp{
 
 // parseDartContent parses Dart content using regex-based approach
 // This is our fallback implementation that will be replaced with tree-sitter when available
+// Note: All required constants and interfaces are defined in the same package
 func (m *Manager) parseDartContent(content, filePath string) (*types.AST, error) {
 	return m.parseDartContentWithContext(context.Background(), content, filePath)
 }
