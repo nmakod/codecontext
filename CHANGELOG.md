@@ -5,6 +5,17 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1](https://github.com/nmakod/codecontext/compare/v3.0.0...v3.0.1) (2025-08-29)
+
+
+### Bug Fixes
+
+* add clarifying comment to resolve CI build cache issues ([dae7468](https://github.com/nmakod/codecontext/commit/dae7468991cf6b0d0547965570f72ff5fd89d5b3))
+* add robust error handling to MCP server Stop method ([d2dc5ff](https://github.com/nmakod/codecontext/commit/d2dc5ff7cf56c1dc850506fe614fd87292f8e1bb))
+* resolve all CI test failures with appropriate timeout adjustments ([ae27ce3](https://github.com/nmakod/codecontext/commit/ae27ce33507e624680e2bc1cf62ffb71f21fffee))
+* resolve MCP integration test timeouts with improved synchronization ([e0516e8](https://github.com/nmakod/codecontext/commit/e0516e85221405c604aa751909a1240095e741e7))
+* resolve MCP test coverage file descriptor issue ([7364eaa](https://github.com/nmakod/codecontext/commit/7364eaac9864da11032006073c414e4b525cd879))
+
 ## [3.0.0](https://github.com/nmakod/codecontext/compare/v2.9.0...v3.0.0) (2025-08-28)
 
 
