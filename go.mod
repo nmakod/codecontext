@@ -9,7 +9,7 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tree-sitter/go-tree-sitter v0.25.0
-	github.com/tree-sitter/tree-sitter-go v0.23.4
+	github.com/tree-sitter/tree-sitter-go v0.25.0
 	github.com/tree-sitter/tree-sitter-java v0.23.5
 	github.com/tree-sitter/tree-sitter-javascript v0.23.1
 	github.com/tree-sitter/tree-sitter-python v0.23.6
