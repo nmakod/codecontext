@@ -79,3 +79,4 @@ git push origin v2.4.1
 3. Use conventional commits for version management
 4. Keep security in mind - run security checks
 5. Maintain backward compatibility
+6. **Language Support**: When adding new language support, follow the comprehensive guide in [docs/LANGUAGE_SUPPORT_GUIDE.md](docs/LANGUAGE_SUPPORT_GUIDE.md)
