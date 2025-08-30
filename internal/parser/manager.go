@@ -106,6 +106,12 @@ func (m *Manager) initLanguages() {
 	rustParser.SetLanguage(rustLang)
 	m.parsers["rust"] = rustParser
 
+	// Swift grammar - using basic parsing approach for now
+	// Will be replaced with tree-sitter bindings when official Go bindings are available
+	m.languages["swift"] = nil // No tree-sitter language for now
+	basicSwiftParser := sitter.NewParser()
+	m.parsers["swift"] = basicSwiftParser
+
 	// Dart grammar - using regex-based approach for now
 	// Will be replaced with tree-sitter bindings when available
 	m.languages["dart"] = nil // No tree-sitter language for now
@@ -248,6 +254,9 @@ func (m *Manager) GetSupportedLanguages() []string {
 	
 	// Add Dart support
 	languages = append(languages, "dart")
+	
+	// Add Swift support
+	languages = append(languages, "swift")
 
 	return languages
 }
@@ -267,7 +276,7 @@ func (m *Manager) ClassifyFile(filePath string) (*types.FileClassification, erro
 	fileType := "source"
 	isTest := false
 
-	if strings.Contains(baseName, "test") || strings.Contains(baseName, "spec") {
+	if strings.Contains(strings.ToLower(baseName), "test") || strings.Contains(strings.ToLower(baseName), "spec") {
 		fileType = "test"
 		isTest = true
 	} else if strings.Contains(baseName, "config") || ext == ".json" || ext == ".yaml" || ext == ".yml" {
@@ -366,6 +375,13 @@ func (m *Manager) detectLanguage(filePath string) *types.Language {
 			Parser:     "tree-sitter-rust",
 			Enabled:    true,
 		}
+	case ".swift":
+		return &types.Language{
+			Name:       "swift",
+			Extensions: []string{".swift"},
+			Parser:     "tree-sitter-swift",
+			Enabled:    true,
+		}
 	case ".dart":
 		return &types.Language{
 			Name:       "dart",
@@ -418,6 +434,15 @@ func (m *Manager) parseContentWithContext(ctx context.Context, content string, l
 			filePathStr = filePath[0]
 		}
 		return m.parseDartContentWithContext(ctx, content, filePathStr)
+	}
+
+	// Handle Swift specially with our custom parser
+	if language.Name == "swift" {
+		filePathStr := ""
+		if len(filePath) > 0 {
+			filePathStr = filePath[0]
+		}
+		return m.parseSwiftContentWithContext(ctx, content, filePathStr)
 	}
 
 	m.mu.RLock()
@@ -582,6 +607,8 @@ func (m *Manager) nodeToSymbolWithContent(node *types.ASTNode, filePath, languag
 		return m.nodeToSymbolGo(node, filePath, language)
 	case "rust":
 		return m.nodeToSymbolRust(node, filePath, language)
+	case "swift":
+		return m.nodeToSymbolSwift(node, filePath, language)
 	case "vue", "svelte", "astro":
 		// Framework-specific files are treated as JavaScript/TypeScript for parsing
 		return m.nodeToSymbolJS(node, filePath, language)
@@ -920,6 +947,210 @@ func (m *Manager) nodeToSymbolRust(node *types.ASTNode, filePath, language strin
 	}
 }
 
+// nodeToSymbolSwift extracts symbols for Swift language
+func (m *Manager) nodeToSymbolSwift(node *types.ASTNode, filePath, language string) *types.Symbol {
+	switch node.Type {
+	case "class_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("class-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeClass,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "struct_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("struct-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeClass,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "protocol_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("protocol-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeInterface,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "actor_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("actor-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeClass,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "typealias_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("typealias-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeType,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "function_declaration":
+		// Determine if it's a method (inside a class/struct) or top-level function
+		symbolType := types.SymbolTypeFunction
+		if strings.Contains(node.Value, "    func") || strings.Contains(node.Value, "\tfunc") {
+			// Indented function = method
+			symbolType = types.SymbolTypeMethod
+		}
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("func-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         symbolType,
+			Location:     convertLocation(node.Location),
+			Signature:    m.extractFunctionSignature(node),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "init_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("init-%s-%d", filePath, node.Location.Line)),
+			Name:         "init",
+			Type:         types.SymbolTypeMethod,
+			Location:     convertLocation(node.Location),
+			Signature:    m.extractFunctionSignature(node),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "deinit_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("deinit-%s-%d", filePath, node.Location.Line)),
+			Name:         "deinit",
+			Type:         types.SymbolTypeMethod,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "import_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("import-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractImportName(node),
+			Type:         types.SymbolTypeImport,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "extension_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("extension-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeNamespace,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "property_declaration":
+		// Determine property type based on metadata
+		symbolType := types.SymbolTypeProperty
+		if node.Metadata != nil {
+			if _, isWrapped := node.Metadata["is_wrapped"]; isWrapped {
+				symbolType = types.SymbolTypeProperty
+			} else if _, isComputed := node.Metadata["is_computed"]; isComputed {
+				symbolType = types.SymbolTypeProperty
+			}
+		}
+		
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("property-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         symbolType,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "associatedtype_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("associatedtype-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeType,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "async_function_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("async-func-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeFunction,
+			Location:     convertLocation(node.Location),
+			Signature:    m.extractFunctionSignature(node),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "subscript_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("subscript-%s-%d", filePath, node.Location.Line)),
+			Name:         "subscript",
+			Type:         types.SymbolTypeMethod,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "operator_function_declaration":
+		operatorSymbol := "operator"
+		if node.Metadata != nil {
+			if op, exists := node.Metadata["operator_symbol"]; exists {
+				operatorSymbol = op.(string)
+			}
+		}
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("operator-%s-%d", filePath, node.Location.Line)),
+			Name:         operatorSymbol,
+			Type:         types.SymbolTypeFunction,
+			Location:     convertLocation(node.Location),
+			Signature:    m.extractFunctionSignature(node),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "result_builder_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("result-builder-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeClass,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	case "macro_declaration":
+		return &types.Symbol{
+			Id:           types.SymbolId(fmt.Sprintf("macro-%s-%d", filePath, node.Location.Line)),
+			Name:         m.extractSymbolName(node),
+			Type:         types.SymbolTypeFunction,
+			Location:     convertLocation(node.Location),
+			Language:     language,
+			Hash:         calculateHash(node.Value),
+			LastModified: time.Now(),
+		}
+	default:
+		return nil
+	}
+}
+
 // nodeToSymbolCSharp extracts symbols for C# language
 func (m *Manager) nodeToSymbolCSharp(node *types.ASTNode, filePath, language string) *types.Symbol {
 	switch node.Type {
@@ -1057,6 +1288,8 @@ func (m *Manager) getExtensionsForLanguage(name string) []string {
 		return []string{".js", ".jsx"}
 	case "dart":
 		return []string{".dart"}
+	case "swift":
+		return []string{".swift"}
 	default:
 		return []string{}
 	}
@@ -1175,6 +1408,10 @@ func (m *Manager) extractImportName(node *types.ASTNode) string {
 			if name := m.extractSymbolName(child); name != "unknown" {
 				return name
 			}
+		}
+		if child.Type == "identifier" {
+			// Direct identifier (Swift imports)
+			return strings.TrimSpace(child.Value)
 		}
 		if child.Type == "string" || child.Type == "string_literal" {
 			// This is likely the import path

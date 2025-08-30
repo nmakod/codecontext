@@ -80,6 +80,15 @@ func (fd *FrameworkDetector) DetectFramework(filePath, language, content string)
 		}
 	}
 
+	// Strategy 6: Swift framework detection
+	if language == "swift" {
+		framework = fd.detectSwiftFramework(content)
+		if framework != "" {
+			fd.frameworkCache[filePath] = framework
+			return framework
+		}
+	}
+
 	// No framework detected
 	fd.frameworkCache[filePath] = ""
 	return ""
@@ -264,6 +273,85 @@ func (fd *FrameworkDetector) detectJavaFramework(content string) string {
 		   strings.Contains(line, "@Service") {
 			return "Spring Boot"
 		}
+	}
+	
+	return ""
+}
+
+// detectSwiftFramework detects Swift frameworks from imports and patterns
+func (fd *FrameworkDetector) detectSwiftFramework(content string) string {
+	lines := strings.Split(content, "\n")
+	
+	// Track all imports to determine priority
+	hasSwiftUI := false
+	hasUIKit := false
+	hasVapor := false
+	hasCombine := false
+	hasSwiftData := false
+	hasSwiftTesting := false
+	hasTCA := false
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		
+		// SwiftUI detection
+		if strings.Contains(line, "import SwiftUI") {
+			hasSwiftUI = true
+		}
+		
+		// UIKit detection
+		if strings.Contains(line, "import UIKit") {
+			hasUIKit = true
+		}
+		
+		// Vapor detection (server-side Swift)
+		if strings.Contains(line, "import Vapor") {
+			hasVapor = true
+		}
+		
+		// Combine detection (reactive programming)
+		if strings.Contains(line, "import Combine") {
+			hasCombine = true
+		}
+		
+		// SwiftData detection (modern persistence)
+		if strings.Contains(line, "import SwiftData") {
+			hasSwiftData = true
+		}
+		
+		// Swift Testing detection (modern testing framework)
+		if strings.Contains(line, "import Testing") {
+			hasSwiftTesting = true
+		}
+		
+		// TCA detection (The Composable Architecture)
+		if strings.Contains(line, "import ComposableArchitecture") || strings.Contains(line, "import TCA") {
+			hasTCA = true
+		}
+	}
+	
+	// Priority order: SwiftData > SwiftUI > TCA > Vapor > UIKit > Swift Testing > Combine
+	// SwiftData is the newest and most specific framework
+	if hasSwiftData {
+		return "SwiftData"
+	}
+	if hasSwiftUI {
+		return "SwiftUI"
+	}
+	if hasTCA {
+		return "TCA"
+	}
+	if hasVapor {
+		return "Vapor"
+	}
+	if hasUIKit {
+		return "UIKit"
+	}
+	if hasSwiftTesting {
+		return "Swift Testing"
+	}
+	if hasCombine {
+		return "Combine"
 	}
 	
 	return ""
