@@ -1,9 +1,9 @@
 # High-Level Design: CodeContext
 
-**Version:** 2.4  
-**Date:** July 2025  
+**Version:** 3.1.1  
+**Date:** August 2025  
 **Author:** Architecture Team  
-**Status:** Production Release - Enhanced with Framework-Specific Analysis
+**Status:** Production Release - Enhanced with C++ Language Support and Security Hardening
 
 ## 1. Executive Summary
 
@@ -18,16 +18,17 @@ This document presents the high-level design for CodeContext, an automated repos
 - **Differential Processing**: Advanced AST-level diffing with semantic analysis ✅ IMPLEMENTED
 - **MCP Server Integration**: Real-time AI integration with Claude Desktop ✅ IMPLEMENTED
 - **Framework-Specific Analysis**: Deep understanding of React, Vue, Angular, Svelte patterns ✅ IMPLEMENTED
-- **Multi-Language Parser Support**: Python, Java, Go, Rust with tree-sitter bindings ✅ IMPLEMENTED
+- **Multi-Language Parser Support**: Python, Java, Go, Rust, C++ with tree-sitter bindings ✅ IMPLEMENTED
+- **C++ Language Support**: Security-hardened Tree-sitter integration with comprehensive testing ✅ IMPLEMENTED
 
-## 1.1 Current Implementation Status (July 2025) - 115% COMPLETE
+## 1.1 Current Implementation Status (August 2025) - 120% COMPLETE
 
 ### ✅ Completed Components
 
 **Parser Manager & Tree-sitter Integration**
 - ✅ Real AST parsing with Tree-sitter JavaScript/TypeScript grammars
 - ✅ Official bindings: `github.com/tree-sitter/go-tree-sitter v0.25.0`
-- ✅ Multi-language support: TypeScript, JavaScript, JSON, YAML, Python, Java, Go, Rust
+- ✅ Multi-language support: TypeScript, JavaScript, JSON, YAML, Python, Java, Go, Rust, C++, Swift, Dart
 - ✅ CGO integration with proper C runtime setup
 - ✅ Symbol extraction: functions, classes, methods, variables, imports
 - ✅ Location tracking with precise line/column information

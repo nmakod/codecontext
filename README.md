@@ -26,9 +26,11 @@ codecontext generate
 
 ### 🔍 **Real Tree-sitter Analysis**
 - **JavaScript/TypeScript**: Full AST parsing with symbol extraction
-- **Go Language**: Complete language support  
-- **Multi-language**: JSON, YAML, and extensible architecture
-- **Symbol Recognition**: Functions, classes, interfaces, imports, variables
+- **Go Language**: Complete language support
+- **C++**: Security-hardened Tree-sitter integration with comprehensive testing
+- **Swift**: Regex-based parsing with 90% P1/P2 feature coverage
+- **Multi-language**: Python, Java, Rust, Dart, JSON, YAML support
+- **Symbol Recognition**: Functions, classes, interfaces, imports, variables, templates
 
 ### 🧠 **AI-Optimized Context**
 - **Token Efficient**: Optimized output format for AI consumption
@@ -371,6 +373,10 @@ Claude: "I can see your full architecture! Based on your current structure with 
 ### Supported Languages
 - **TypeScript/JavaScript**: Full Tree-sitter AST parsing
 - **Go**: Complete language support with Tree-sitter
+- **C++**: Security-hardened Tree-sitter integration (NEW v3.1.1)
+- **Swift**: Comprehensive regex-based parsing with framework support (NEW v3.0.1)
+- **Python/Java/Rust**: Tree-sitter integration with symbol extraction
+- **Dart**: Framework-aware parsing with Flutter support
 - **JSON/YAML**: Basic parsing and structure analysis
 - **Extensible**: Plugin architecture for additional languages
 

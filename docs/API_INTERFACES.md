@@ -1,12 +1,12 @@
 # API Interfaces Specification
 
-**Version:** 3.0.1  
-**Status:** Production Ready - Enhanced with Swift Language Support  
+**Version:** 3.1.1  
+**Status:** Production Ready - Enhanced with C++ Language Support and Security Hardening  
 **Last Updated:** August 2025
 
 ## Overview
 
-This document defines all core interfaces and APIs implemented in CodeContext v3.0.1. These interfaces reflect the production-ready implementation that exceeds the original HLD scope, including new components like Git Integration, MCP Server, Framework-Specific Analysis capabilities, and comprehensive Swift language support.
+This document defines all core interfaces and APIs implemented in CodeContext v3.1.1. These interfaces reflect the production-ready implementation that exceeds the original HLD scope, including new components like Git Integration, MCP Server, Framework-Specific Analysis capabilities, comprehensive Swift language support, and security-hardened C++ language support.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ This document defines all core interfaces and APIs implemented in CodeContext v3
 4. [Enhanced Diff Engine Interfaces](#enhanced-diff-engine-interfaces) **NEW**
 5. [MCP Server Interfaces](#mcp-server-interfaces) **Enhanced v3.0.1**
 6. [Virtual Graph Interfaces](#virtual-graph-interfaces)
-7. [Parser Interfaces](#parser-interfaces) **Enhanced v3.0.1 with Swift Support**
+7. [Parser Interfaces](#parser-interfaces) **Enhanced v3.1.1 with C++ and Swift Support**
 8. [Compact Controller Interfaces](#compact-controller-interfaces)
 9. [Storage Interfaces](#storage-interfaces)
 10. [REST API Specifications](#rest-api-specifications)
@@ -385,6 +385,8 @@ type GoDetector struct{}
 type PythonDetector struct{}
 type JavaDetector struct{}
 type CSharpDetector struct{}
+type CppDetector struct{}
+type CppParser struct{}
 ```
 
 ## MCP Server Interfaces
@@ -413,7 +415,7 @@ type MCPTool interface {
 }
 ```
 
-### Implemented MCP Tools (v3.0.1 - 8 Tools Enhanced with Swift Support)
+### Implemented MCP Tools (v3.1.1 - 8 Tools Enhanced with C++ and Swift Support)
 ```go
 // 1. Get codebase overview
 type GetCodebaseOverviewTool struct {
@@ -425,18 +427,20 @@ type GetFileAnalysisTool struct {
     analyzer *analyzer.GraphBuilder
 }
 
-// 3. Get symbol information (Enhanced with framework-specific insights + Swift support)
+// 3. Get symbol information (Enhanced with framework-specific insights + C++ and Swift support)
 type GetSymbolInfoTool struct {
     analyzer *analyzer.GraphBuilder
     frameworkDetector *parser.FrameworkDetector
     swiftParser *parser.SwiftParser
+    cppParser *parser.CppParser
 }
 
-// 4. Search symbols (Enhanced with framework-aware filtering + Swift support)
+// 4. Search symbols (Enhanced with framework-aware filtering + C++ and Swift support)
 type SearchSymbolsTool struct {
     analyzer *analyzer.GraphBuilder
     frameworkDetector *parser.FrameworkDetector
     swiftParser *parser.SwiftParser
+    cppParser *parser.CppParser
 }
 
 // 5. Get dependencies
