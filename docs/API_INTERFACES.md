@@ -1,22 +1,22 @@
 # API Interfaces Specification
 
-**Version:** 2.4+  
-**Status:** Production Ready - Enhanced with Framework Analysis  
-**Last Updated:** July 2025
+**Version:** 3.0.1  
+**Status:** Production Ready - Enhanced with Swift Language Support  
+**Last Updated:** August 2025
 
 ## Overview
 
-This document defines all core interfaces and APIs implemented in CodeContext v2.4+. These interfaces reflect the production-ready implementation that exceeds the original HLD scope, including new components like Git Integration, MCP Server, and Framework-Specific Analysis capabilities.
+This document defines all core interfaces and APIs implemented in CodeContext v3.0.1. These interfaces reflect the production-ready implementation that exceeds the original HLD scope, including new components like Git Integration, MCP Server, Framework-Specific Analysis capabilities, and comprehensive Swift language support.
 
 ## Table of Contents
 
 1. [Core Interfaces](#core-interfaces)
-2. [Framework Detection Interfaces](#framework-detection-interfaces) **NEW v2.4**
+2. [Framework Detection Interfaces](#framework-detection-interfaces) **Enhanced v3.0.1**
 3. [Git Integration Interfaces](#git-integration-interfaces) **NEW**
 4. [Enhanced Diff Engine Interfaces](#enhanced-diff-engine-interfaces) **NEW**
-5. [MCP Server Interfaces](#mcp-server-interfaces) **NEW - Enhanced in v2.4**
+5. [MCP Server Interfaces](#mcp-server-interfaces) **Enhanced v3.0.1**
 6. [Virtual Graph Interfaces](#virtual-graph-interfaces)
-7. [Parser Interfaces](#parser-interfaces) **Enhanced in v2.4**
+7. [Parser Interfaces](#parser-interfaces) **Enhanced v3.0.1 with Swift Support**
 8. [Compact Controller Interfaces](#compact-controller-interfaces)
 9. [Storage Interfaces](#storage-interfaces)
 10. [REST API Specifications](#rest-api-specifications)
@@ -111,6 +111,7 @@ type FrameworkDetector interface {
     DetectByPackageJson(filePath string) string
     DetectPythonFramework(content string) string
     DetectJavaFramework(content string) string
+    DetectSwiftFramework(content string) string
     
     // Caching and performance
     ClearCache() error
@@ -146,6 +147,11 @@ const (
     SymbolTypeRoute        SymbolType = "route"        // Next.js pages, API routes
     SymbolTypeMiddleware   SymbolType = "middleware"   // Next.js middleware
     SymbolTypeAction       SymbolType = "action"       // Svelte actions, Vue actions
+    // Swift-specific symbol types (NEW v3.0.1)
+    SymbolTypeActor        SymbolType = "actor"        // Swift actors for concurrency
+    SymbolTypePropertyWrapper SymbolType = "property_wrapper" // Swift property wrappers
+    SymbolTypeResultBuilder   SymbolType = "result_builder"   // Swift result builders
+    SymbolTypeMacro           SymbolType = "macro"            // Swift 5.9+ macros
 )
 ```
 
@@ -407,7 +413,7 @@ type MCPTool interface {
 }
 ```
 
-### Implemented MCP Tools (v2.4 - 8 Tools)
+### Implemented MCP Tools (v3.0.1 - 8 Tools Enhanced with Swift Support)
 ```go
 // 1. Get codebase overview
 type GetCodebaseOverviewTool struct {
@@ -419,16 +425,18 @@ type GetFileAnalysisTool struct {
     analyzer *analyzer.GraphBuilder
 }
 
-// 3. Get symbol information (Enhanced with framework-specific insights)
+// 3. Get symbol information (Enhanced with framework-specific insights + Swift support)
 type GetSymbolInfoTool struct {
     analyzer *analyzer.GraphBuilder
     frameworkDetector *parser.FrameworkDetector
+    swiftParser *parser.SwiftParser
 }
 
-// 4. Search symbols (Enhanced with framework-aware filtering)
+// 4. Search symbols (Enhanced with framework-aware filtering + Swift support)
 type SearchSymbolsTool struct {
     analyzer *analyzer.GraphBuilder
     frameworkDetector *parser.FrameworkDetector
+    swiftParser *parser.SwiftParser
 }
 
 // 5. Get dependencies
