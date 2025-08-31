@@ -49,6 +49,17 @@ type ParserConfig struct {
 		EnableAsyncAnalysis   bool `yaml:"enable_async_analysis" json:"enable_async_analysis"`
 	} `yaml:"dart" json:"dart"`
 	
+	Cpp struct {
+		MaxNestingDepth       int  `yaml:"max_nesting_depth" json:"max_nesting_depth"`
+		MaxTemplateDepth      int  `yaml:"max_template_depth" json:"max_template_depth"`
+		MaxClassesPerFile     int  `yaml:"max_classes_per_file" json:"max_classes_per_file"`
+		MaxMethodsPerClass    int  `yaml:"max_methods_per_class" json:"max_methods_per_class"`
+		MaxFileSize           int  `yaml:"max_file_size" json:"max_file_size"`
+		EnableVirtualDetection bool `yaml:"enable_virtual_detection" json:"enable_virtual_detection"`
+		ParseTimeout          time.Duration `yaml:"parse_timeout" json:"parse_timeout"`
+		StrictTimeoutEnforcement bool `yaml:"strict_timeout_enforcement" json:"strict_timeout_enforcement"`
+	} `yaml:"cpp" json:"cpp"`
+	
 	Logging struct {
 		Level          string `yaml:"level" json:"level"`
 		EnableMetrics  bool   `yaml:"enable_metrics" json:"enable_metrics"`
@@ -75,6 +86,16 @@ func DefaultConfig() *ParserConfig {
 	config.Dart.EnableFlutterDetection = true
 	config.Dart.MaxFileSize = MaxFileSize
 	config.Dart.EnableAsyncAnalysis = true
+	
+	// C++ specific defaults
+	config.Cpp.MaxNestingDepth = MaxNestingDepth
+	config.Cpp.MaxTemplateDepth = 20 // Reasonable template depth
+	config.Cpp.MaxClassesPerFile = MaxClassesPerFile
+	config.Cpp.MaxMethodsPerClass = MaxMethodsPerClass
+	config.Cpp.MaxFileSize = MaxFileSize
+	config.Cpp.EnableVirtualDetection = true
+	config.Cpp.ParseTimeout = 30 * time.Second
+	config.Cpp.StrictTimeoutEnforcement = false // Default to lenient mode
 	
 	// Logging defaults
 	config.Logging.Level = "info"

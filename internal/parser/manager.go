@@ -16,6 +16,7 @@ import (
 	java "github.com/tree-sitter/tree-sitter-java/bindings/go"
 	golang "github.com/tree-sitter/tree-sitter-go/bindings/go"
 	rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
+	cpp "github.com/tree-sitter/tree-sitter-cpp/bindings/go"
 	// csharp "github.com/zzctmac/go-tree-sitter/csharp" // TODO: Fix type compatibility
 )
 
@@ -26,6 +27,9 @@ type Manager struct {
 	cache             Cache
 	frameworkDetector *FrameworkDetector
 	mu                sync.RWMutex
+	
+	// Language-specific parsers
+	cppParser *CppParser
 	
 	// Injected dependencies
 	logger       Logger
@@ -105,6 +109,27 @@ func (m *Manager) initLanguages() {
 	rustParser := sitter.NewParser()
 	rustParser.SetLanguage(rustLang)
 	m.parsers["rust"] = rustParser
+
+	// C++ grammar using official bindings with dedicated parser
+	cppLang := sitter.NewLanguage(cpp.Language())
+	m.languages["cpp"] = cppLang
+	m.languages["c++"] = cppLang // Alias for flexibility
+
+	cppParser := sitter.NewParser()
+	cppParser.SetLanguage(cppLang)
+	m.parsers["cpp"] = cppParser
+	m.parsers["c++"] = cppParser
+	
+	// Initialize dedicated C++ parser for enhanced features
+	var err error
+	m.cppParser, err = NewCppParserWithConfig(m.logger, m.config)
+	if err != nil {
+		// Log error but continue with basic parsing (non-fatal)
+		if m.logger != nil {
+			m.logger.Error("failed to initialize enhanced C++ parser", err)
+		}
+		m.cppParser = nil
+	}
 
 	// Swift grammar - using basic parsing approach for now
 	// Will be replaced with tree-sitter bindings when official Go bindings are available
@@ -186,8 +211,19 @@ func (m *Manager) ParseFileVersioned(filePath, content, version string) (*types.
 
 // ExtractSymbols extracts symbols from an AST
 func (m *Manager) ExtractSymbols(ast *types.AST) ([]*types.Symbol, error) {
+	if m == nil {
+		return nil, fmt.Errorf("Manager is nil")
+	}
+	if ast == nil {
+		return nil, fmt.Errorf("AST is nil")
+	}
 	if ast.Root == nil {
 		return nil, fmt.Errorf("AST root is nil")
+	}
+
+	// Use enhanced C++ parser for C++ files
+	if ast.Language == "cpp" && m.cppParser != nil {
+		return m.cppParser.ExtractSymbolsWithContext(ast.Root, ast.FilePath, ast.Content)
 	}
 
 	var symbols []*types.Symbol
@@ -257,6 +293,9 @@ func (m *Manager) GetSupportedLanguages() []string {
 	
 	// Add Swift support
 	languages = append(languages, "swift")
+	
+	// Add C++ support
+	languages = append(languages, "cpp")
 
 	return languages
 }
@@ -410,6 +449,20 @@ func (m *Manager) detectLanguage(filePath string) *types.Language {
 			Parser:     "astro-template", // Framework-specific handling
 			Enabled:    true,
 		}
+	case ".cpp", ".cxx", ".cc", ".c++":
+		return &types.Language{
+			Name:       "cpp",
+			Extensions: []string{".cpp", ".cxx", ".cc", ".c++"},
+			Parser:     "tree-sitter-cpp",
+			Enabled:    true,
+		}
+	case ".hpp", ".hxx", ".hh", ".h++", ".h":
+		return &types.Language{
+			Name:       "cpp",
+			Extensions: []string{".hpp", ".hxx", ".hh", ".h++", ".h"},
+			Parser:     "tree-sitter-cpp",
+			Enabled:    true,
+		}
 	// case ".cs":
 	//	return &types.Language{
 	//		Name:       "csharp",
@@ -445,6 +498,46 @@ func (m *Manager) parseContentWithContext(ctx context.Context, content string, l
 		return m.parseSwiftContentWithContext(ctx, content, filePathStr)
 	}
 
+	// Handle C++ specially with enhanced parser
+	if language.Name == "cpp" || language.Name == "c++" {
+		filePathStr := ""
+		if len(filePath) > 0 {
+			filePathStr = filePath[0]
+			// Input sanitization for file paths
+			if err := validateFilePath(filePathStr); err != nil {
+				return nil, NewParseError("parseContent", filePathStr, language.Name, err)
+			}
+		}
+		// Use enhanced C++ parser if available
+		if m.cppParser != nil {
+			ast, err := m.cppParser.ParseContent(ctx, content, filePathStr)
+			if err == nil {
+				return ast, nil
+			}
+			// If enhanced parser fails, log the error and fallback to basic parsing
+			// Note: In production, consider logging this error for debugging
+		}
+		// Fallback to basic tree-sitter parsing (skip enhanced parser logic)
+		return m.parseContentBasic(ctx, content, language, filePathStr)
+	}
+
+	// Extract filePath for basic parsing
+	filePathStr := ""
+	if len(filePath) > 0 {
+		filePathStr = filePath[0]
+	}
+	return m.parseContentBasic(ctx, content, language, filePathStr)
+}
+
+// parseContentBasic performs basic tree-sitter parsing without enhanced language-specific features
+func (m *Manager) parseContentBasic(ctx context.Context, content string, language types.Language, filePath string) (*types.AST, error) {
+	if m == nil {
+		return nil, fmt.Errorf("Manager is nil")
+	}
+	if content == "" {
+		return nil, fmt.Errorf("content is empty")
+	}
+
 	m.mu.RLock()
 	parser, exists := m.parsers[language.Name]
 	treeSitterLang := m.languages[language.Name]
@@ -464,8 +557,8 @@ func (m *Manager) parseContentWithContext(ctx context.Context, content string, l
 			TreeSitterTree: nil,
 		}
 
-		if len(filePath) > 0 {
-			ast.FilePath = filePath[0]
+		if filePath != "" {
+			ast.FilePath = filePath
 		}
 
 		// Create a basic root node for unsupported languages
@@ -497,8 +590,8 @@ func (m *Manager) parseContentWithContext(ctx context.Context, content string, l
 		TreeSitterTree: tree,
 	}
 
-	if len(filePath) > 0 {
-		ast.FilePath = filePath[0]
+	if filePath != "" {
+		ast.FilePath = filePath
 	}
 
 	// Convert Tree-sitter root node to our AST format
@@ -609,6 +702,12 @@ func (m *Manager) nodeToSymbolWithContent(node *types.ASTNode, filePath, languag
 		return m.nodeToSymbolRust(node, filePath, language)
 	case "swift":
 		return m.nodeToSymbolSwift(node, filePath, language)
+	case "cpp", "c++":
+		// Use dedicated C++ parser with context tracking
+		if m.cppParser != nil {
+			return m.cppParser.NodeToSymbol(node, filePath, language, content, nil)
+		}
+		return m.nodeToSymbolCpp(node, filePath, language)
 	case "vue", "svelte", "astro":
 		// Framework-specific files are treated as JavaScript/TypeScript for parsing
 		return m.nodeToSymbolJS(node, filePath, language)
@@ -1148,6 +1247,21 @@ func (m *Manager) nodeToSymbolSwift(node *types.ASTNode, filePath, language stri
 		}
 	default:
 		return nil
+	}
+}
+
+// nodeToSymbolCpp provides fallback C++ parsing (deprecated - use CppParser)
+func (m *Manager) nodeToSymbolCpp(node *types.ASTNode, filePath, language string) *types.Symbol {
+	// This is a fallback implementation
+	// The main C++ parsing is now handled by CppParser
+	return &types.Symbol{
+		Id:           types.SymbolId(fmt.Sprintf("fallback-%s-%d", filePath, node.Location.Line)),
+		Name:         m.extractSymbolName(node),
+		Type:         types.SymbolTypeClass, // Default type
+		Location:     convertLocation(node.Location),
+		Language:     language,
+		Hash:         calculateHash(node.Value),
+		LastModified: time.Now(),
 	}
 }
 

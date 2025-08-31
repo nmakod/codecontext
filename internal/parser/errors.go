@@ -2,7 +2,9 @@ package parser
 
 import (
 	"fmt"
+	"path/filepath"
 	"runtime/debug"
+	"strings"
 )
 
 // Domain-specific error types
@@ -97,4 +99,30 @@ func (e *ValidationError) Error() string {
 
 func (e *ValidationError) Unwrap() error {
 	return e.Err
+}
+
+// validateFilePath performs input sanitization on file paths
+func validateFilePath(filePath string) error {
+	if filePath == "" {
+		return nil // Empty path is allowed
+	}
+	
+	// Check for null bytes (security risk)
+	if strings.Contains(filePath, "\x00") {
+		return fmt.Errorf("file path contains null bytes")
+	}
+	
+	// Check for excessively long paths (DoS prevention)
+	const maxPathLength = 4096
+	if len(filePath) > maxPathLength {
+		return fmt.Errorf("file path too long: %d > %d", len(filePath), maxPathLength)
+	}
+	
+	// Check for directory traversal attempts
+	cleanPath := filepath.Clean(filePath)
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("path traversal detected in: %s", filePath)
+	}
+	
+	return nil
 }

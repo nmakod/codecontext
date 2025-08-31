@@ -37,6 +37,14 @@ const (
 	SymbolTypeRoute        SymbolType = "route"        // Next.js pages, API routes
 	SymbolTypeMiddleware   SymbolType = "middleware"   // Next.js middleware
 	SymbolTypeAction       SymbolType = "action"       // Svelte actions, Vue actions
+	
+	// C++ specific symbol types
+	SymbolTypeConstructor  SymbolType = "constructor"  // C++ constructors
+	SymbolTypeDestructor   SymbolType = "destructor"   // C++ destructors
+	SymbolTypeOperator     SymbolType = "operator"     // C++ operator overloads
+	SymbolTypeTemplate     SymbolType = "template"     // C++ templates
+	SymbolTypeCppTypedef   SymbolType = "cpp_typedef"  // C++ typedefs
+	SymbolTypeCppUsing     SymbolType = "cpp_using"    // C++ using declarations
 )
 
 // FileLocation represents a location in a file
