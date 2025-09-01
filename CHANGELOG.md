@@ -5,6 +5,18 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0](https://github.com/nmakod/codecontext/compare/v3.1.0...v3.2.0) (2025-09-01)
+
+
+### Features
+
+* add comprehensive C++ language support with security hardening ([d27642c](https://github.com/nmakod/codecontext/commit/d27642cbb174d7db0c96245d97aa6b5bc656e064))
+
+
+### Bug Fixes
+
+* resolve CI test failures and improve C++ P2 feature detection ([f226a46](https://github.com/nmakod/codecontext/commit/f226a46efe4491c964c488e24e0ac6457c566845))
+
 ## [3.1.0](https://github.com/nmakod/codecontext/compare/v3.0.1...v3.1.0) (2025-08-31)
 
 
