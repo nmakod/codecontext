@@ -5,6 +5,13 @@ All notable changes to CodeContext will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1](https://github.com/nmakod/codecontext/compare/v3.2.0...v3.2.1) (2025-09-01)
+
+
+### Bug Fixes
+
+* relax C++ performance test timeout for CI environment ([b093a3e](https://github.com/nmakod/codecontext/commit/b093a3e1f76f6fbe2a9e7b65d21d477690d80ba0))
+
 ## [3.2.0](https://github.com/nmakod/codecontext/compare/v3.1.0...v3.2.0) (2025-09-01)
 
 
