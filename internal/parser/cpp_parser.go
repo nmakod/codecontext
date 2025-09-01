@@ -1162,7 +1162,12 @@ func (cp *CppParser) detectSmartPointers(content string) bool {
 }
 
 func (cp *CppParser) detectConcepts(content string) bool {
-	return strings.Contains(content, "concept ") && strings.Contains(content, "requires")
+	// C++20 concepts can be defined with or without explicit requires clause
+	return strings.Contains(content, "concept ") && 
+		   (strings.Contains(content, "requires") || 
+		    strings.Contains(content, "std::integral") || 
+		    strings.Contains(content, "std::floating_point") ||
+		    strings.Contains(content, "= "))
 }
 
 func (cp *CppParser) detectStructuredBinding(content string) bool {

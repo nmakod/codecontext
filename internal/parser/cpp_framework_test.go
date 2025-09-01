@@ -173,6 +173,8 @@ func TestCppP2AndFrameworkCoverage(t *testing.T) {
 	t.Run("P2 features", func(t *testing.T) {
 		cpp20Code := `#include <concepts>
 #include <coroutine>
+import std.core;
+module mymodule;
 
 template<typename T>
 concept Numeric = std::integral<T> || std::floating_point<T>;

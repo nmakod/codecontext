@@ -44,7 +44,14 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+
     - name: Run Nancy vulnerability scanner
+      env:
+        CGO_ENABLED: 1
       run: |
         set -euo pipefail
         NANCY_VERSION=$(curl -s https://api.github.com/repos/sonatype-nexus-community/nancy/releases/latest | grep '"tag_name":' | cut -d'"' -f4)
@@ -53,11 +60,15 @@ jobs:
         go list -json -deps ./... | ./nancy sleuth
 
     - name: Run govulncheck
+      env:
+        CGO_ENABLED: 1
       uses: golang/govulncheck-action@v1
       with:
         check-latest: true
 
     - name: Run Gosec Security Scanner
+      env:
+        CGO_ENABLED: 1
       continue-on-error: true
       uses: securego/gosec@master
       with:
@@ -76,6 +87,11 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+
     - name: Cache Go modules
       uses: actions/cache@v4
       with:
@@ -85,6 +101,8 @@ jobs:
           ${{ runner.os }}-go-
 
     - name: Run tests
+      env:
+        CGO_ENABLED: 1
       run: |
         go test -v -race -coverprofile=coverage.out ./...
         go tool cover -func=coverage.out
@@ -129,6 +147,23 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
+    - name: Install build dependencies
+      if: matrix.target_os != 'windows'
+      run: |
+        if [[ "${{ matrix.target_os }}" == "linux" ]]; then
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+        elif [[ "${{ matrix.target_os }}" == "darwin" ]]; then
+          # macOS runners have Xcode command line tools pre-installed
+          xcode-select --install || true
+        fi
+
+    - name: Install Windows build dependencies
+      if: matrix.target_os == 'windows'
+      run: |
+        # Windows has build tools available via chocolatey or pre-installed
+        echo "Windows build environment ready"
+
     - name: Get version info
       id: version
       run: |
@@ -143,6 +178,7 @@ jobs:
       env:
         GOOS: ${{ matrix.target_os }}
         GOARCH: ${{ matrix.target_arch }}
+        CGO_ENABLED: 1
       run: |
         # Get version and build info
         VERSION="${{ steps.version.outputs.version }}"
