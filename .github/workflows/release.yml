@@ -208,7 +208,7 @@ jobs:
         fi
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: codecontext-${{ matrix.target_os }}-${{ matrix.target_arch }}
         path: |
