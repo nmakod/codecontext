@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Setup Go
       uses: actions/setup-go@v5
@@ -80,7 +80,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Setup Go
       uses: actions/setup-go@v5
@@ -134,7 +134,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
 
     - name: Setup QEMU
       if: matrix.target_os == 'linux' && matrix.target_arch == 'arm64'
@@ -281,7 +281,7 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
